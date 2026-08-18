@@ -420,10 +420,22 @@ def fetch_lyrics(track, token=None):
         if _has_backs(merged):
             return merged
 
-    # 3) LRCLIB búsqueda
+    # 3) LRCLIB búsqueda — PREFERIR la versión con paréntesis (backs reales)
     st, data = request(LRCLIB + "/search?" + urllib.parse.urlencode(
         {"track_name": track["name"], "artist_name": track["artist"]}))
     if st == 200 and isinstance(data, list) and data:
+        # Primero intentar las versiones CON paréntesis
+        import re as _re
+        for x in data:
+            synced = x.get("syncedLyrics") or ""
+            if not synced:
+                continue
+            # Solo versiones que tengan paréntesis con texto (backs reales)
+            if _re.search(r"\([^)\d][^)]*\)", synced):
+                lines = parse_lrc(synced)
+                if _has_backs(lines):
+                    return lines
+        # Si ninguna tenía paréntesis, mejor coincidencia por duración
         best, best_diff = None, None
         for x in data:
             if not x.get("syncedLyrics"):
