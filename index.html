@@ -87,8 +87,6 @@
   #lyrics{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:11vh 6vw;color:var(--tc);transition:color .15s;z-index:2}
   #lyrics.no-glow .line{text-shadow:none}
   #lyrics.upper .line{text-transform:uppercase}
-  #lyrics.egg{justify-content:center}
-  #lyrics.egg .line{text-transform:uppercase;white-space:nowrap;letter-spacing:.05em}
   /* song-flash: cuando cambia de canción se ve un flash blanco */
   @keyframes song-flash {
     0%{opacity:1;text-shadow:none}
@@ -290,25 +288,26 @@ function applyCfg() {
 }
 
 /* ---------- 🐰 easter egg EOO (Bad Bunny): letra real con efectos especiales ---------- */
-let eggActive = false, eggGrowing = false, eggTimer = null;
+let eggActive = false, eggWordTimer = null, eggWordIdx = 0;
 
 function isEggBlock(text) {
   // Chequéate la historia → bloque del easter egg
   return /Chequ[eé]ate la historia/i.test(text || "");
 }
 function isEooText(text) {
-  // EO o EOO como PALABRA COMPLETA (no dentro de Perreo) → la O crece
+  // EO o EOO como PALABRA COMPLETA → la O crece
   return /\bEOOO?\b/i.test(text || "");
 }
 function isEggText(text) {
-  // Perreo / Tra-tra → Impact + B/N + sin CRT
+  // Perreo / Tra-tra → una palabra a la vez, Impact, blanco sobre negro, sin CRT
   return /Perreo|Tra-tra/i.test(text || "");
 }
 
 function enterEgg() {
   if (eggActive) return;
   eggActive = true;
-  $("lyrics").classList.add("egg");
+  // QUITA TODO el CRT — negro puro
+  $("screen").style.background = "#000";
   $("crt").style.display = "none";
   $("noise").style.display = "none";
   $("refresh").style.display = "none";
@@ -317,29 +316,59 @@ function enterEgg() {
 function exitEgg() {
   if (!eggActive) return;
   eggActive = false;
-  stopGrowingE();
-  $("lyrics").classList.remove("egg");
+  if (eggWordTimer) { clearInterval(eggWordTimer); eggWordTimer = null; }
+  if (_growingTimer) { clearInterval(_growingTimer); _growingTimer = null; }
+  // RESTAURA CRT
+  $("screen").style.background = "";
   $("crt").style.display = "";
   $("noise").style.display = "";
   $("refresh").style.display = "";
 }
 
+function startWordCycle(text) {
+  if (eggWordTimer) { clearInterval(eggWordTimer); eggWordTimer = null; }
+  eggWordIdx = 0;
+  const words = text.split(/\s+/).filter(w => w.length > 0);
+  if (!words.length) return;
+  const el = $("lCur");
+  el.style.whiteSpace = "nowrap";
+  el.style.color = "#fff";          // BLANCO PURO
+  el.style.background = "none";     // sin fondo
+  el.style.webkitBackgroundClip = "text";
+  el.style.backgroundClip = "text";
+  el.textContent = words[0];
+  el.style.fontSize = "18vw";       // MUY GRANDE
+  eggWordIdx = 1;
+  eggWordTimer = setInterval(() => {
+    el.textContent = words[eggWordIdx % words.length];
+    eggWordIdx++;
+  }, 350);
+}
+
+function stopWordCycle() {
+  if (eggWordTimer) { clearInterval(eggWordTimer); eggWordTimer = null; }
+  eggWordIdx = 0;
+}
+
+let _growingTimer = null;
 function startGrowingE() {
   // E → EO → EOO → EOOO… hasta que se salga de la pantalla
-  if (eggTimer) { clearInterval(eggTimer); eggTimer = null; }
+  if (_growingTimer) { clearInterval(_growingTimer); _growingTimer = null; }
   const el = $("lCur");
-  el.textContent = "E";          // arranca con E sola
+  el.style.color = "#fff";
+  el.style.background = "none";
+  el.style.webkitBackgroundClip = "text";
+  el.style.backgroundClip = "text";
+  el.textContent = "E";
   let oCount = 0;
-  eggTimer = setInterval(() => {
+  _growingTimer = setInterval(() => {
     oCount++;
     el.textContent = "E" + "O".repeat(oCount);
     if (el.scrollWidth > el.offsetWidth) { oCount = 0; el.textContent = "E"; }
   }, 85);
 }
-
 function stopGrowingE() {
-  if (eggTimer) { clearInterval(eggTimer); eggTimer = null; }
-  eggGrowing = false;
+  if (_growingTimer) { clearInterval(_growingTimer); _growingTimer = null; }
 }
 
 function applyEggFont() {
@@ -446,11 +475,16 @@ function frame() {
       else if (!eggActive && wasEoo) exitEgg();
       applyEggFont();
       if (nowEoo) {
+        stopWordCycle();
         setLyric("E");          // arranca con E sola
-        startGrowingE();         // E → EOOOOOOOO…
+        startGrowingE();
+      } else if (nowEgg) {
+        stopGrowingE();
+        startWordCycle(lastShown);  // una palabra a la vez, 18vw
       } else {
-        stopGrowingE();          // deja de crecer
-        setLyric(lastShown);     // letra real
+        stopWordCycle();
+        stopGrowingE();
+        setLyric(lastShown);     // letra normal
       }
     }
     if (S.track.duration_ms) {
