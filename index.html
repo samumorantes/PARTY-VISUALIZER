@@ -286,12 +286,14 @@ function applyCfg() {
 let eggActive = false, eggGrowing = false, eggTimer = null;
 
 function isEooText(text) {
-  // EOOO o EOO → la O crece horizontalmente hasta salir de pantalla
-  return /EOOO?/i.test(text || "");
+  // Perreo → la O crece: P-e-r-r-e-OOOO… (la O de Perreo se estira
+  // hacia fuera y las demás letras se desplazan, creando el efecto de
+  // palabra que se alarga horizontalmente)
+  return /Perreo/i.test(text || "");
 }
 function isEggText(text) {
-  // AAPerreo / AATra-tra → Impact + B/N + sin CRT
-  return /AAPerreo|AATra-tra/i.test(text || "");
+  // Tra-tra → Impact + B/N + sin CRT
+  return /Tra-tra/i.test(text || "");
 }
 
 function enterEgg() {
@@ -306,6 +308,7 @@ function enterEgg() {
 function exitEgg() {
   if (!eggActive) return;
   eggActive = false;
+  stopGrowingE();
   $("lyrics").classList.remove("egg");
   $("crt").style.display = "";
   $("noise").style.display = "";
@@ -313,20 +316,15 @@ function exitEgg() {
 }
 
 function startGrowingE() {
-  // E → EOOOOOOOOO… hasta que se salga de la pantalla
+  // E → EO → EOO → EOOO… hasta que se salga de la pantalla
   if (eggTimer) { clearInterval(eggTimer); eggTimer = null; }
-  eggGrowing = true;
   const el = $("lCur");
-  el.textContent = "E";        // empieza con E sola
+  el.textContent = "E";          // arranca con E sola
   let oCount = 0;
   eggTimer = setInterval(() => {
     oCount++;
     el.textContent = "E" + "O".repeat(oCount);
-    // cuando la palabra sale de la pantalla, se reinicia desde E
-    if (el.scrollWidth > el.offsetWidth) {
-      oCount = 0;
-      el.textContent = "E";
-    }
+    if (el.scrollWidth > el.offsetWidth) { oCount = 0; el.textContent = "E"; }
   }, 85);
 }
 
