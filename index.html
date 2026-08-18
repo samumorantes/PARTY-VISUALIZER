@@ -89,6 +89,13 @@
   #lyrics.upper .line{text-transform:uppercase}
   #lyrics.egg{justify-content:center}
   #lyrics.egg .line{text-transform:uppercase;white-space:nowrap;letter-spacing:.05em}
+  /* song-flash: cuando cambia de canción se ve un flash blanco */
+  @keyframes song-flash {
+    0%{opacity:1;text-shadow:none}
+    40%{opacity:.85;text-shadow:0 0 6vw #fff}
+    100%{opacity:.3;text-shadow:none}
+  }
+  #lyrics.song-flash .line{animation:song-flash .5s ease-out forwards}
 
   /* huevo: sin fósforos RGB (se queda la viñeta) */
   .line{font-family:var(--lyric-font);font-size:var(--fs);line-height:1.45;max-width:88vw;
@@ -285,15 +292,17 @@ function applyCfg() {
 /* ---------- 🐰 easter egg EOO (Bad Bunny): letra real con efectos especiales ---------- */
 let eggActive = false, eggGrowing = false, eggTimer = null;
 
+function isEggBlock(text) {
+  // Chequéate la historia → bloque del easter egg
+  return /Chequ[eé]ate la historia/i.test(text || "");
+}
 function isEooText(text) {
-  // Perreo → la O crece: P-e-r-r-e-OOOO… (la O de Perreo se estira
-  // hacia fuera y las demás letras se desplazan, creando el efecto de
-  // palabra que se alarga horizontalmente)
-  return /Perreo/i.test(text || "");
+  // EO o EOO como PALABRA COMPLETA (no dentro de Perreo) → la O crece
+  return /\bEOOO?\b/i.test(text || "");
 }
 function isEggText(text) {
-  // Tra-tra → Impact + B/N + sin CRT
-  return /Tra-tra/i.test(text || "");
+  // Perreo / Tra-tra → Impact + B/N + sin CRT
+  return /Perreo|Tra-tra/i.test(text || "");
 }
 
 function enterEgg() {
@@ -341,9 +350,8 @@ function setLyric(text) {
   $("lCur").textContent = text;
   $("lCur").style.whiteSpace = "normal";
   $("lCur").style.lineHeight = "";
-  const len = Math.max(text.length, 1);
-  const eff = Math.max(Math.min(cfg.fs, 88 / len), 3);
-  $("lCur").style.fontSize = eff + "vw";
+  // MISMO tamaño para TODAS las letras — cfg.fs fijo (sin auto-escalar)
+  $("lCur").style.fontSize = cfg.fs + "vw";
 }
 
 /* ---------- estado ---------- */
@@ -385,12 +393,19 @@ function renderState() {
   hideMsg();
 
   if (curTrack !== S.track.id) {
-    const realChange = curTrack !== null;   // null = primera carga o cambio de ajuste (sin animación)
+    const realChange = curTrack !== null;   // null = primera carga (sin animación)
     curTrack = S.track.id;
     lineIdx = -1; beatPtr = 0; barPtr = 0; secPtr = 0; lastShown = null;
     exitEgg();   // restaura CRT al cambiar de canción
     pos = (S.progress_ms || 0) / 1000; posAt = performance.now();
     applyEggFont();
+    // MOSTRAR SOLO el nombre de canción + flash blanco
+    $("lCur").textContent = S.track.name || "";
+    $("lCur").style.fontSize = "";
+    $("lCur").style.whiteSpace = "normal";
+    $("lCur").style.lineHeight = "";
+    $("lyrics").classList.add("song-flash");
+    setTimeout(() => $("lyrics").classList.remove("song-flash"), 500);
     $("song").textContent = S.track.name;
     $("artist").textContent = S.track.artist;
     if (S.track.cover) { $("cover").src = S.track.cover; $("cover").style.visibility = "visible"; }
@@ -398,6 +413,7 @@ function renderState() {
     $("lineNone").style.display = S.lyrics.length ? "none" : "flex";
     $("lyrics").style.display = S.lyrics.length ? "flex" : "none";
     if (realChange && cfg.channel) playChannel();
+    return;   // aún no mostrar lyrics — esperar al siguiente frame
   }
   if (S.demo) { $("badge").textContent = "DEMO"; $("badge").style.display = "block"; }
   else if (!eggActive) $("badge").style.display = "none";
