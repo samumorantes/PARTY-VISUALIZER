@@ -199,11 +199,32 @@ def track_info(item):
     }
 
 
+def _extract_back_into(item):
+    """Extrae (contenido) del text y lo guarda en item['back']. Sin paréntesis = sin back."""
+    txt = item.get("text", "")
+    if "(" not in txt or ")" not in txt:
+        return
+    main_parts, back_parts = [], []
+    for part in re.split(r"(\([^)]*\))", txt):
+        p = part.strip()
+        if not p:
+            continue
+        if p.startswith("(") and p.endswith(")"):
+            back_parts.append(p[1:-1])
+        else:
+            main_parts.append(p)
+    new_text = " ".join(main_parts)
+    if new_text:
+        item["text"] = new_text
+    if back_parts:
+        item["back"] = " ".join(back_parts)
+
+
 # ---------------------------------------------------------------- letras (LRCLIB)
 def parse_lrc(text):
-    """Convierte LRC ('[mm:ss.xx] línea') en [{t: segundos, text: ...}].
-    Los paréntesis (así) se tratan como 'backs' — se extraen como línea
-    separada inmediatamente después de la línea principal."""
+    """Convierte LRC ('[mm:ss.xx] línea') en [{t, text, back?}].
+    Los paréntesis (así) NO son línea separada — se devuelven en `back`
+    dentro del mismo item, para que aparezcan como subtítulo debajo."""
     out = []
     if not text:
         return out
@@ -215,7 +236,7 @@ def parse_lrc(text):
             continue
         denom = 10 ** len(m.group(3)) if m.group(3) else 1
         t = mm * 60 + ss + frac / float(denom)
-        # Separar backs: (contenido) → línea aparte justo después
+        # Extraer partes: principal vs (back)
         main_parts, back_parts = [], []
         for part in re.split(r"(\([^)]*\))", txt):
             p = part.strip()
@@ -227,10 +248,10 @@ def parse_lrc(text):
                 main_parts.append(p)
         main_text = " ".join(main_parts)
         if main_text:
-            out.append({"t": round(t, 3), "text": main_text})
-        for bp in back_parts:
-            t += 0.12   # mismo tiempo + offset pequeño para que aparezcan seguidas
-            out.append({"t": round(t, 3), "text": bp})
+            item = {"t": round(t, 3), "text": main_text}
+            if back_parts:
+                item["back"] = " ".join(back_parts)
+            out.append(item)
     return out
 
 
@@ -278,7 +299,9 @@ def fetch_lyrics_spotify(track, token):
                 for l in raw_lines:
                     w = (l.get("words") or "").strip()
                     if w:
-                        out.append({"t": (l.get("startTimeMs") or 0) / 1000.0, "text": w})
+                        item = {"t": (l.get("startTimeMs") or 0) / 1000.0, "text": w}
+                        _extract_back_into(item)
+                        out.append(item)
                 if out:
                     return out
             else:
@@ -310,7 +333,12 @@ def fetch_lyrics_plain(track):
             if lines:
                 dur = track.get("duration_ms", 0) / 1000.0 or 180.0
                 step = min(dur / len(lines), 9.0) if dur else 5.0
-                return [{"t": round(1.0 + i * step, 3), "text": l} for i, l in enumerate(lines)]
+                out = []
+                for i, l in enumerate(lines):
+                    item = {"t": round(1.0 + i * step, 3), "text": l}
+                    _extract_back_into(item)
+                    out.append(item)
+                return out
     except Exception:
         pass
     return []

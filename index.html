@@ -98,6 +98,13 @@
   /* huevo: sin fósforos RGB (se queda la viñeta) */
   .line{font-family:var(--lyric-font);font-size:var(--fs);line-height:1.45;max-width:88vw;
     text-shadow:0 0 2.5vmin rgba(255,255,255,.18), 0 2px 8px rgba(0,0,0,.45)}
+  /* SUBTÍTULO: más pequeño y opaco (backs/paréntesis) */
+  .line.back{font-size:calc(var(--fs) * .5);opacity:.45;line-height:1.2;
+    text-shadow:none;letter-spacing:0}
+  /* durante easter egg: ocultar el back (no aplica) */
+  #lyrics.egg .line.back{display:none}
+  /* durante song-flash: el back hereda la animación */
+  #lyrics.song-flash .line.back{animation:song-flash .5s ease-out forwards}
   #lineNone{position:absolute;inset:0;display:none;align-items:center;justify-content:center;text-align:center;padding:8vw;font-size:calc(var(--fs)*.5);color:var(--tc);z-index:2;font-family:'SpaceGrotesk',sans-serif;font-weight:700;transition:color .15s}
   #msg{position:absolute;inset:0;display:none;align-items:center;justify-content:center;text-align:center;padding:8vw;font-size:clamp(18px,3.4vw,34px);color:var(--tc);z-index:3;font-family:'SpaceGrotesk',sans-serif;font-weight:700;line-height:1.6;white-space:pre-line;transition:color .15s;text-shadow:0 0 3vmin rgba(255,255,255,.14)}
   #source{position:absolute;bottom:9px;left:0;right:0;text-align:center;font-size:11px;opacity:.55;color:var(--tc);z-index:4;font-family:'SpaceGrotesk',sans-serif;letter-spacing:1.5px;transition:color .15s;text-shadow:0 1px 6px rgba(0,0,0,.45)}
@@ -207,7 +214,10 @@
     <div class="row"><button id="logoutBtn" class="btn2">Desconectar</button></div>
   </div>
 
-  <div id="lyrics"><div class="line" id="lCur"></div></div>
+  <div id="lyrics">
+    <div class="line main" id="lCur"></div>
+    <div class="line back" id="lBack" style="display:none"></div>
+  </div>
   <div id="lineNone">📝 SIN LETRAS SINCRONIZADAS</div>
   <div id="msg"></div>
   <div id="source">LETRAS: LRCLIB + SPOTIFY + LYRICS.OVH · RITMO: AUDIO ANALYSIS</div>
@@ -375,12 +385,20 @@ function applyEggFont() {
   const r = document.documentElement.style;
   r.setProperty("--lyric-font", eggActive ? "Impact,'Arial Black',sans-serif" : (FONTS[cfg.font] || FONTS.arcade));
 }
-function setLyric(text) {
+function setLyric(text, back) {
   $("lCur").textContent = text;
   $("lCur").style.whiteSpace = "normal";
   $("lCur").style.lineHeight = "";
-  // MISMO tamaño para TODAS las letras — cfg.fs fijo (sin auto-escalar)
   $("lCur").style.fontSize = cfg.fs + "vw";
+  // SUBTÍTULO: backs/paréntesis como línea secundaria opaca
+  const backEl = $("lBack");
+  if (back) {
+    backEl.textContent = back;
+    backEl.style.display = "block";
+  } else {
+    backEl.textContent = "";
+    backEl.style.display = "none";
+  }
 }
 
 /* ---------- estado ---------- */
@@ -429,6 +447,8 @@ function renderState() {
     applyEggFont();
     // Nombre de canción en grande + flash
     $("lCur").textContent = S.track.name || "";
+    $("lBack").textContent = "";
+    $("lBack").style.display = "none";
     $("lCur").style.fontSize = "";
     $("lCur").style.whiteSpace = "normal";
     $("lCur").style.lineHeight = "";
@@ -476,15 +496,15 @@ function frame() {
       applyEggFont();
       if (nowEoo) {
         stopWordCycle();
-        setLyric("E");          // arranca con E sola
+        setLyric("E", null);    // E sola, sin back
         startGrowingE();
       } else if (nowEgg) {
         stopGrowingE();
-        startWordCycle(lastShown);  // una palabra a la vez, 18vw
+        startWordCycle(lastShown);
       } else {
         stopWordCycle();
         stopGrowingE();
-        setLyric(lastShown);     // letra normal
+        setLyric(lastShown, L[lineIdx].back);  // letra normal + back opcional
       }
     }
     if (S.track.duration_ms) {
