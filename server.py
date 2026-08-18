@@ -520,7 +520,9 @@ def enrich(track, token, max_words=4):
 # ---------------------------------------------------------------- estado / demo
 _player_cache = {"data": None, "at": 0.0, "mw": 4}
 _demo_start = time.time()
-_sync_cache = (0.0, 0.0)   # (progress_ms, timestamp) — global para /api/sync
+# cache del sync: guarda progress_ms + ts + track_id para poder servir todos los polls
+# sin martillar Spotify. track_id se rellena siempre para que el cliente no recargue state.
+_sync_cache = {"prog": 0, "is_playing": False, "track_id": "", "ts": 0.0}
 
 
 def demo_state():
@@ -702,25 +704,31 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 _t = time.time()
                 if CLIENT_ID and load_tokens():
                     tok = access_token()
-                    out = {"progress_ms": 0, "is_playing": False, "track_id": "", "ts": _t}
+                    # siempre incluir el último track_id conocido (para que el cliente
+                    # no recargue /api/state innecesariamente)
+                    out = {"progress_ms": _sync_cache["prog"],
+                           "is_playing": _sync_cache["is_playing"],
+                           "track_id": _sync_cache["track_id"],
+                           "ts": _t}
                     if tok:
-                        # caché: solo refrescar de Spotify una vez por segundo,
-                        # los 4 polls intermedios se extrapolan del cache
-                        base_prog, base_at = _sync_cache
-                        if base_at > 0 and base_prog > 0 and _t - base_at < 1.0:
-                            out["progress_ms"] = base_prog + int((_t - base_at) * 1000)
-                            out["is_playing"] = True
-                            out["track_id"] = ""
-                            out["ts"] = _t
-                        else:
+                        # solo refrescar de Spotify si pasaron >1s desde el último fetch
+                        if _t - _sync_cache["ts"] > 1.0 or _sync_cache["ts"] == 0:
                             player = fetch_player(tok)
                             if player:
-                                out["is_playing"] = player.get("is_playing", False)
-                                out["progress_ms"] = player.get("progress_ms", 0) or 0
+                                _sync_cache["is_playing"] = player.get("is_playing", False)
+                                _sync_cache["prog"] = player.get("progress_ms", 0) or 0
                                 item = player.get("item") or {}
                                 if item.get("id"):
-                                    out["track_id"] = item.get("id")
-                            _sync_cache = (out["progress_ms"], _t)
+                                    _sync_cache["track_id"] = item.get("id")
+                            _sync_cache["ts"] = _t
+                        # extrapolar siempre desde el cache
+                        if _sync_cache["is_playing"]:
+                            _sync_cache["prog"] += int((_t - _sync_cache["ts"]) * 1000)
+                            _sync_cache["ts"] = _t
+                        out["progress_ms"] = _sync_cache["prog"]
+                        out["is_playing"] = _sync_cache["is_playing"]
+                        out["track_id"] = _sync_cache["track_id"]
+                        out["ts"] = _t
                 else:
                     elapsed = max(0, _t - _demo_start)
                     cyc = 180.0

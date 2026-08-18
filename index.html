@@ -416,16 +416,23 @@ async function tick() {
       serverPos += age / 1000;
     }
     const serverPlaying = !!sync.is_playing;
-    if (S && S.track && S.track.id === sync.track_id && serverPlaying === playing) {
+    const sameTrack = S && S.track && S.track.id && sync.track_id && S.track.id === sync.track_id;
+    const samePlaying = serverPlaying === playing;
+    if (S && S.track && sameTrack && samePlaying) {
       // misma canción, mismo estado → corrección agresiva del drift
       const drift = serverPos - pos;
-      if (Math.abs(drift) > 30) pos = serverPos;            // muy lejos → snap
-      else if (Math.abs(drift) > 0.5) pos = serverPos;        // seek/scrub → snap (sin arrastrar)
-      else pos += drift * 0.5;                                 // corrección suave (50% por poll, sync en ~0.5s)
+      if (Math.abs(drift) > 30) pos = serverPos;
+      else if (Math.abs(drift) > 0.5) pos = serverPos;
+      else pos += drift * 0.5;
       playing = serverPlaying;
       posAt = performance.now();
+    } else if (S && S.track && sameTrack && !samePlaying) {
+      // misma canción pero cambió pausa → solo actualizar estado, no recargar
+      playing = serverPlaying;
+      pos = serverPos;
+      posAt = performance.now();
     } else {
-      // cambió canción o estado → recargar estado completo
+      // cambió canción o primer load → recargar estado completo
       const r2 = await fetch("/api/state?mw=" + cfg.phrase, { cache: "no-store" });
       S = await r2.json();
       playing = !!S.is_playing;
