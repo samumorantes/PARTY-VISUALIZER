@@ -311,8 +311,11 @@ function setEgg(kind) {
     el.textContent = "E";                          // arranca con la E…
     eggTimer = setTimeout(eooStep, 110);           // …y los O se añaden uno a uno
   } else {
-    el.style.fontSize = "14vw";
-    perreoStep();
+    // PERREO EN GRANDE  +  TRA TRA  (ambos visibles, grandes, juntos)
+    el.style.fontSize = "8vw";
+    el.textContent = "PERREO EN GRANDE\nTRA TRA";
+    el.style.whiteSpace = "pre";
+    el.style.lineHeight = "1.1";
   }
 }
 function eooStep() {
@@ -320,14 +323,6 @@ function eooStep() {
   if (el.offsetWidth > window.innerWidth * 1.02 || el.textContent.length > 60) el.textContent = "E";
   else el.textContent += "O";
   eggTimer = setTimeout(eooStep, 110);
-}
-const PERREO_SEQ = [{ t: "PERREO", d: 800 }, { t: "TRA", d: 400 }, { t: "", d: 160 }, { t: "TRA", d: 400 }];
-let perreoIdx = 0;
-function perreoStep() {
-  const s = PERREO_SEQ[perreoIdx % PERREO_SEQ.length];
-  $("lCur").textContent = s.t;
-  perreoIdx++;
-  eggTimer = setTimeout(perreoStep, s.d);
 }
 function applyEggFont() {
   const r = document.documentElement.style;
@@ -341,6 +336,8 @@ function applyEggFont() {
 }
 function setLyric(text) {
   $("lCur").textContent = text;
+  $("lCur").style.whiteSpace = "normal";
+  $("lCur").style.lineHeight = "";
   const len = Math.max(text.length, 1);
   const eff = Math.max(Math.min(cfg.fs, 88 / len), 3);
   $("lCur").style.fontSize = eff + "vw";
