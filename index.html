@@ -64,7 +64,7 @@
   #song{font-family:'SpaceGrotesk',sans-serif;font-weight:700;font-size:15px;letter-spacing:.3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:0 1px 8px rgba(0,0,0,.5)}
   #artist{font-size:13px;opacity:.8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:0 1px 8px rgba(0,0,0,.5)}
   #badge{position:absolute;top:16px;right:62px;font-size:11px;font-weight:700;letter-spacing:1.5px;padding:5px 10px;border-radius:2px;background:rgba(0,0,0,.45);color:#ffd54a;z-index:5;display:none;font-family:'SpaceGrotesk',sans-serif}
-  #badge.egg{color:#fff;background:rgba(0,0,0,.6);letter-spacing:2px}
+
   #gear{position:absolute;top:10px;right:12px;width:40px;height:40px;border-radius:2px;border:none;background:rgba(0,0,0,.38);color:#fff;font-size:19px;cursor:pointer;z-index:10}
 
   /* ====== PANEL DE AJUSTES ====== */
@@ -89,9 +89,8 @@
   #lyrics.upper .line{text-transform:uppercase}
   #lyrics.egg .line{text-transform:uppercase;letter-spacing:.03em}
   /* 🐰 huevo EOO: el texto crece en horizontal y sale de la pantalla */
-  #lyrics.egg-eoo .line{position:fixed;left:50%;top:50%;transform:translateY(-50%);white-space:nowrap;max-width:none;letter-spacing:0}
+
   /* huevo: sin fósforos RGB (se queda la viñeta) */
-  #crt.no-mask::after{background:radial-gradient(ellipse 130% 130% at 50% 50%, transparent 50%, rgba(0,0,0,var(--vig-op)) 100%)}
   .line{font-family:var(--lyric-font);font-size:var(--fs);line-height:1.45;max-width:88vw;
     text-shadow:0 0 2.5vmin rgba(255,255,255,.18), 0 2px 8px rgba(0,0,0,.45)}
   #lineNone{position:absolute;inset:0;display:none;align-items:center;justify-content:center;text-align:center;padding:8vw;font-size:calc(var(--fs)*.5);color:var(--tc);z-index:2;font-family:'SpaceGrotesk',sans-serif;font-weight:700;transition:color .15s}
@@ -283,56 +282,32 @@ function applyCfg() {
   applyEggFont();
 }
 
-/* ---------- 🐰 easter egg EOO (Bad Bunny): B/N + Impact ---------- */
-let eggTrack = false, eggActive = false, eggKind = null, eggTimer = null;
+/* ---------- 🐰 easter egg EOO: letra real en Impact + B/N + sin CRT ---------- */
+let eggActive = false;
 
-function eggKindFor(text) {
-  const p = (text || "").toLowerCase();
-  if (p.includes("eoo")) return "eoo";        // E + OOO creciendo hasta salir de pantalla
-  if (p.includes("perreo") || p.includes("tra")) return "perreo";  // PERREO → TRA → TRA
-  return null;
+function isEooText(text) { return /EOOO?/i.test(text || ""); }
+
+function enterEgg() {
+  if (eggActive) return;
+  eggActive = true;
+  $("lyrics").classList.add("egg");
+  $("crt").style.display = "none";     // QUITA todo el CRT durante el huevo
+  $("noise").style.display = "none";
+  $("refresh").style.display = "none";
 }
-function stopEgg() {
-  if (eggTimer) { clearTimeout(eggTimer); eggTimer = null; }
-  eggKind = null;
+
+function exitEgg() {
+  if (!eggActive) return;
+  eggActive = false;
+  $("lyrics").classList.remove("egg");
+  $("crt").style.display = "";
+  $("noise").style.display = "";
+  $("refresh").style.display = "";
 }
-function setEgg(kind) {
-  stopEgg();
-  if (!kind) {
-    if (lastShown) setLyric(lastShown);   // restaurar letra normal
-    applyEggFont();
-    return;
-  }
-  eggKind = kind;
-  applyEggFont();
-  const el = $("lCur");
-  if (kind === "eoo") {
-    el.style.fontSize = "13vw";
-    el.textContent = "E";                          // arranca con la E…
-    eggTimer = setTimeout(eooStep, 110);           // …y los O se añaden uno a uno
-  } else {
-    // PERREO EN GRANDE  +  TRA TRA  (ambos visibles, grandes, juntos)
-    el.style.fontSize = "8vw";
-    el.textContent = "PERREO EN GRANDE\nTRA TRA";
-    el.style.whiteSpace = "pre";
-    el.style.lineHeight = "1.1";
-  }
-}
-function eooStep() {
-  const el = $("lCur");
-  if (el.offsetWidth > window.innerWidth * 1.02 || el.textContent.length > 60) el.textContent = "E";
-  else el.textContent += "O";
-  eggTimer = setTimeout(eooStep, 110);
-}
+
 function applyEggFont() {
   const r = document.documentElement.style;
   r.setProperty("--lyric-font", eggActive ? "Impact,'Arial Black',sans-serif" : (FONTS[cfg.font] || FONTS.arcade));
-  const ly = $("lyrics");
-  ly.classList.toggle("egg", eggActive);
-  ly.classList.toggle("egg-eoo", eggActive && eggKind === "eoo");
-  $("crt").classList.toggle("no-mask", eggActive);   // quitar fósforos RGB durante el huevo
-  if (eggActive) { $("badge").textContent = "🐰 EOO"; $("badge").style.display = "block"; $("badge").classList.add("egg"); }
-  else { $("badge").classList.remove("egg"); }
 }
 function setLyric(text) {
   $("lCur").textContent = text;
@@ -384,10 +359,9 @@ function renderState() {
   if (curTrack !== S.track.id) {
     const realChange = curTrack !== null;   // null = primera carga o cambio de ajuste (sin animación)
     curTrack = S.track.id;
-    lineIdx = -1; beatPtr = 0; barPtr = 0; secPtr = 0; lastShown = null; eggActive = false;
-    stopEgg();
+    lineIdx = -1; beatPtr = 0; barPtr = 0; secPtr = 0; lastShown = null;
+    exitEgg();   // restaura CRT al cambiar de canción
     pos = (S.progress_ms || 0) / 1000; posAt = performance.now();
-    eggTrack = /eoo/i.test(S.track.name) && /bad bunny/i.test(S.track.artist);
     applyEggFont();
     $("song").textContent = S.track.name;
     $("artist").textContent = S.track.artist;
@@ -420,11 +394,13 @@ function frame() {
     }
     if (lineIdx >= 0 && lineIdx < L.length && L[lineIdx].text !== lastShown) {
       lastShown = L[lineIdx].text;
-      // 🐰 easter egg: la frase decide el modo (eoo / perreo / normal)
-      const kind = eggTrack ? eggKindFor(lastShown) : null;
-      eggActive = kind !== null;
-      if (kind !== eggKind) setEgg(kind);
-      if (!eggKind) setLyric(lastShown);
+      // 🐰 easter egg: si la frase tiene EOOO/E, muestra la letra real con Impact
+      const wasEoo = eggActive;
+      eggActive = isEooText(lastShown);
+      if (eggActive && !wasEoo) enterEgg();
+      else if (!eggActive && wasEoo) exitEgg();
+      applyEggFont();
+      setLyric(lastShown);   // siempre la letra real de la canción
     }
     if (S.track.duration_ms) {
       $("pbar").style.width = Math.min(100, t / (S.track.duration_ms / 1000) * 100) + "%";
