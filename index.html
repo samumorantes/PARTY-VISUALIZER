@@ -87,8 +87,8 @@
   #lyrics{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:11vh 6vw;color:var(--tc);transition:color .15s;z-index:2}
   #lyrics.no-glow .line{text-shadow:none}
   #lyrics.upper .line{text-transform:uppercase}
-  #lyrics.egg .line{text-transform:uppercase;letter-spacing:.03em}
-  /* 🐰 huevo EOO: el texto crece en horizontal y sale de la pantalla */
+  #lyrics.egg{justify-content:center}
+  #lyrics.egg .line{text-transform:uppercase;white-space:nowrap;letter-spacing:.05em}
 
   /* huevo: sin fósforos RGB (se queda la viñeta) */
   .line{font-family:var(--lyric-font);font-size:var(--fs);line-height:1.45;max-width:88vw;
@@ -282,16 +282,23 @@ function applyCfg() {
   applyEggFont();
 }
 
-/* ---------- 🐰 easter egg EOO: letra real en Impact + B/N + sin CRT ---------- */
-let eggActive = false;
+/* ---------- 🐰 easter egg EOO (Bad Bunny): letra real con efectos especiales ---------- */
+let eggActive = false, eggGrowing = false, eggTimer = null;
 
-function isEooText(text) { return /EOOO?/i.test(text || ""); }
+function isEooText(text) {
+  // EOOO o EOO → la O crece horizontalmente hasta salir de pantalla
+  return /EOOO?/i.test(text || "");
+}
+function isEggText(text) {
+  // AAPerreo / AATra-tra → Impact + B/N + sin CRT
+  return /AAPerreo|AATra-tra/i.test(text || "");
+}
 
 function enterEgg() {
   if (eggActive) return;
   eggActive = true;
   $("lyrics").classList.add("egg");
-  $("crt").style.display = "none";     // QUITA todo el CRT durante el huevo
+  $("crt").style.display = "none";
   $("noise").style.display = "none";
   $("refresh").style.display = "none";
 }
@@ -303,6 +310,29 @@ function exitEgg() {
   $("crt").style.display = "";
   $("noise").style.display = "";
   $("refresh").style.display = "";
+}
+
+function startGrowingE() {
+  // E → EOOOOOOOOO… hasta que se salga de la pantalla
+  if (eggTimer) { clearInterval(eggTimer); eggTimer = null; }
+  eggGrowing = true;
+  const el = $("lCur");
+  el.textContent = "E";        // empieza con E sola
+  let oCount = 0;
+  eggTimer = setInterval(() => {
+    oCount++;
+    el.textContent = "E" + "O".repeat(oCount);
+    // cuando la palabra sale de la pantalla, se reinicia desde E
+    if (el.scrollWidth > el.offsetWidth) {
+      oCount = 0;
+      el.textContent = "E";
+    }
+  }, 85);
+}
+
+function stopGrowingE() {
+  if (eggTimer) { clearInterval(eggTimer); eggTimer = null; }
+  eggGrowing = false;
 }
 
 function applyEggFont() {
@@ -394,13 +424,20 @@ function frame() {
     }
     if (lineIdx >= 0 && lineIdx < L.length && L[lineIdx].text !== lastShown) {
       lastShown = L[lineIdx].text;
-      // 🐰 easter egg: si la frase tiene EOOO/E, muestra la letra real con Impact
       const wasEoo = eggActive;
-      eggActive = isEooText(lastShown);
+      const nowEoo = isEooText(lastShown);
+      const nowEgg = isEggText(lastShown);
+      eggActive = nowEoo || nowEgg;
       if (eggActive && !wasEoo) enterEgg();
       else if (!eggActive && wasEoo) exitEgg();
       applyEggFont();
-      setLyric(lastShown);   // siempre la letra real de la canción
+      if (nowEoo) {
+        setLyric("E");          // arranca con E sola
+        startGrowingE();         // E → EOOOOOOOO…
+      } else {
+        stopGrowingE();          // deja de crecer
+        setLyric(lastShown);     // letra real
+      }
     }
     if (S.track.duration_ms) {
       $("pbar").style.width = Math.min(100, t / (S.track.duration_ms / 1000) * 100) + "%";
