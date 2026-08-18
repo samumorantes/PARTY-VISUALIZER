@@ -419,16 +419,15 @@ function renderState() {
   if (S.error === "ratelimit") { showMsg("⏳ DEMASIADAS PETICIONES A SPOTIFY… ESPERANDO."); return; }
   $("bigLogin").style.display = S.logged_in ? "none" : "block";
   if (!S.track) { showMsg("🎧 REPRODUCE UNA CANCIÓN EN SPOTIFY\nY APARECERÁ AQUÍ LA LETRA EN TIEMPO REAL."); return; }
-  hideMsg();
 
   if (curTrack !== S.track.id) {
     const realChange = curTrack !== null;   // null = primera carga (sin animación)
     curTrack = S.track.id;
     lineIdx = -1; beatPtr = 0; barPtr = 0; secPtr = 0; lastShown = null;
-    exitEgg();   // restaura CRT al cambiar de canción
+    exitEgg();
     pos = (S.progress_ms || 0) / 1000; posAt = performance.now();
     applyEggFont();
-    // MOSTRAR SOLO el nombre de canción + flash blanco
+    // Nombre de canción en grande + flash
     $("lCur").textContent = S.track.name || "";
     $("lCur").style.fontSize = "";
     $("lCur").style.whiteSpace = "normal";
@@ -441,8 +440,9 @@ function renderState() {
     else $("cover").style.visibility = "hidden";
     $("lineNone").style.display = S.lyrics.length ? "none" : "flex";
     $("lyrics").style.display = S.lyrics.length ? "flex" : "none";
+    hideMsg();   // MOSTRAR lyrics + OCULTAR msg AHORA
     if (realChange && cfg.channel) playChannel();
-    return;   // aún no mostrar lyrics — esperar al siguiente frame
+    return;
   }
   if (S.demo) { $("badge").textContent = "DEMO"; $("badge").style.display = "block"; }
   else if (!eggActive) $("badge").style.display = "none";

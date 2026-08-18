@@ -201,7 +201,9 @@ def track_info(item):
 
 # ---------------------------------------------------------------- letras (LRCLIB)
 def parse_lrc(text):
-    """Convierte LRC ('[mm:ss.xx] línea') en [{t: segundos, text: ...}]."""
+    """Convierte LRC ('[mm:ss.xx] línea') en [{t: segundos, text: ...}].
+    Los paréntesis (así) se tratan como 'backs' — se extraen como línea
+    separada inmediatamente después de la línea principal."""
     out = []
     if not text:
         return out
@@ -211,10 +213,24 @@ def parse_lrc(text):
         txt = m.group(4).strip()
         if not txt:
             continue
-        # el tercer grupo puede ser centésimas (.xx) o milésimas (de 1 a 3 dígitos)
         denom = 10 ** len(m.group(3)) if m.group(3) else 1
         t = mm * 60 + ss + frac / float(denom)
-        out.append({"t": round(t, 3), "text": txt})
+        # Separar backs: (contenido) → línea aparte justo después
+        main_parts, back_parts = [], []
+        for part in re.split(r"(\([^)]*\))", txt):
+            p = part.strip()
+            if not p:
+                continue
+            if p.startswith("(") and p.endswith(")"):
+                back_parts.append(p[1:-1])
+            else:
+                main_parts.append(p)
+        main_text = " ".join(main_parts)
+        if main_text:
+            out.append({"t": round(t, 3), "text": main_text})
+        for bp in back_parts:
+            t += 0.12   # mismo tiempo + offset pequeño para que aparezcan seguidas
+            out.append({"t": round(t, 3), "text": bp})
     return out
 
 
