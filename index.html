@@ -401,25 +401,54 @@ function setLyric(text, back) {
   }
 }
 
-/* ---------- estado ---------- */
+/* ---------- estado (sync agresivo: 4 polls/s + extrapolación local) ---------- */
 async function tick() {
   try {
-    const r = await fetch("/api/state?mw=" + cfg.phrase, { cache: "no-store" });
-    S = await r.json();
-  } catch (e) { /* servidor reiniciándose */ }
-  if (S) {
-    playing = !!S.is_playing;
-    const serverPos = (S.progress_ms || 0) / 1000;
-    if (playing) {
+    const r = await fetch("/api/sync", { cache: "no-store" });
+    if (!r.ok) throw 0;
+    const sync = await r.json();
+    const serverNow = performance.now();
+    // progreso del servidor EN EL MOMENTO EXACTO de la respuesta
+    let serverPos = (sync.progress_ms || 0) / 1000;
+    // extrapolar: añadir tiempo entre respuesta y nuestro "ahora"
+    if (sync.is_playing && sync.ts) {
+      const age = serverNow - (sync.ts * 1000);
+      serverPos += age / 1000;
+    }
+    const serverPlaying = !!sync.is_playing;
+    if (S && S.track && S.track.id === sync.track_id && serverPlaying === playing) {
+      // misma canción, mismo estado → corrección agresiva del drift
       const drift = serverPos - pos;
-      if (Math.abs(drift) > 30) pos = serverPos;
-      else pos += Math.max(-0.35, Math.min(0.35, drift));
-      speed = 1;
-    } else { pos = serverPos; speed = 0; }
-    posAt = performance.now();
-    renderState();
+      if (Math.abs(drift) > 30) pos = serverPos;            // muy lejos → snap
+      else if (Math.abs(drift) > 0.5) pos = serverPos;        // seek/scrub → snap (sin arrastrar)
+      else pos += drift * 0.5;                                 // corrección suave (50% por poll, sync en ~0.5s)
+      playing = serverPlaying;
+      posAt = performance.now();
+    } else {
+      // cambió canción o estado → recargar estado completo
+      const r2 = await fetch("/api/state?mw=" + cfg.phrase, { cache: "no-store" });
+      S = await r2.json();
+      playing = !!S.is_playing;
+      pos = serverPos;
+      posAt = performance.now();
+      renderState();
+    }
+  } catch (e) {
+    try {
+      const r = await fetch("/api/state?mw=" + cfg.phrase, { cache: "no-store" });
+      S = await r.json();
+      if (S && S.track) {
+        const serverPos = (S.progress_ms || 0) / 1000;
+        playing = !!S.is_playing;
+        const drift = serverPos - pos;
+        if (Math.abs(drift) > 0.5) pos = serverPos;
+        else pos += drift * 0.5;
+        posAt = performance.now();
+        renderState();
+      }
+    } catch (e2) { /* servidor apagado */ }
   }
-  setTimeout(tick, 600);
+  setTimeout(tick, 250);   // 4 polls/s
 }
 
 function showMsg(t) {
