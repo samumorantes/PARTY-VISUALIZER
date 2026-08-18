@@ -344,18 +344,83 @@ def fetch_lyrics_plain(track):
     return []
 
 
+def _merge_alternating_voices(lines):
+    """Detecta líneas con voces alternadas (Perreo -> Tra-tra, Mami -> baby -> Ey...)
+    y las une como principal+back automáticamente cuando NO hay paréntesis."""
+    if not lines:
+        return lines
+    out = []
+    i = 0
+    n = len(lines)
+    while i < n:
+        cur = lines[i]
+        # Si ya tiene back, no tocar
+        if cur.get("back"):
+            out.append(cur)
+            i += 1
+            continue
+        # Buscar siguientes líneas que sean MUY CORTAS (<=25 chars) y gap pequeño
+        backs = []
+        j = i + 1
+        gap_threshold = 2.8   # gap máximo entre líneas para ser "alternada"
+        while j < n:
+            nxt = lines[j]
+            gap = nxt["t"] - (lines[j-1]["t"] if j > 0 else cur["t"])
+            # Solo agrupar si la siguiente línea es muy corta y gap pequeño
+            if nxt.get("back") or len(nxt["text"]) > 25 or gap > gap_threshold:
+                break
+            # Stop si ya tenemos 4 backs
+            if len(backs) >= 4:
+                break
+            backs.append(nxt)
+            j += 1
+        if backs and len(backs) <= 4:
+            # Concatenar las siguientes líneas como back (voz alternada)
+            back_text = " ".join(b["text"] for b in backs)
+            new_item = {"t": cur["t"], "text": cur["text"], "back": back_text}
+            out.append(new_item)
+            i = j
+            continue
+        out.append(cur)
+        i += 1
+    return out
+
+
 def fetch_lyrics(track, token=None):
-    """Cadena de fuentes para que TODAS las canciones tengan letra:
-    1) LRCLIB exacto  2) LRCLIB búsqueda  3) Spotify interno  4) lyrics.ovh (sin sync)."""
+    """Cadena de fuentes para que TODAS las canciones tengan letra con backs:
+    1) Spotify interno (si tiene token y devuelve líneas) — TIENE paréntesis
+    2) LRCLIB exacto
+    3) LRCLIB búsqueda
+    4) lyrics.ovh (sin sync)
+
+    Tras obtenerlas: si NO hay paréntesis, detectar voces alternadas
+    (Perreo/Tra-tra/Mami/baby/ey...) y crear `back` automáticamente."""
     dur = round(track["duration_ms"] / 1000) if track.get("duration_ms") else None
+
+    # 1) Spotify interno primero — usa paréntesis reales para los backs
+    if token:
+        found = fetch_lyrics_spotify(track, token)
+        if found:
+            if _has_backs(found):
+                return found
+            spotify_no_backs = found   # guardar por si LRCLIB tampoco tiene
+
+    # 2) LRCLIB exacto
     params = {"artist_name": track["artist"], "track_name": track["name"],
               "album_name": track["album"]}
     if dur:
         params["duration"] = dur
     st, data = request(LRCLIB + "/get?" + urllib.parse.urlencode(params))
     if st == 200 and data and data.get("syncedLyrics"):
-        return parse_lrc(data["syncedLyrics"])
+        lines = parse_lrc(data["syncedLyrics"])
+        if _has_backs(lines):
+            return lines
+        # LRCLIB sin paréntesis → detectar voces alternadas
+        merged = _merge_alternating_voices(lines)
+        if _has_backs(merged):
+            return merged
 
+    # 3) LRCLIB búsqueda
     st, data = request(LRCLIB + "/search?" + urllib.parse.urlencode(
         {"track_name": track["name"], "artist_name": track["artist"]}))
     if st == 200 and isinstance(data, list) and data:
@@ -367,13 +432,28 @@ def fetch_lyrics(track, token=None):
             if best is None or d < best_diff:
                 best, best_diff = x, d
         if best:
-            return parse_lrc(best["syncedLyrics"])
+            lines = parse_lrc(best["syncedLyrics"])
+            if _has_backs(lines):
+                return lines
+            merged = _merge_alternating_voices(lines)
+            if _has_backs(merged):
+                return merged
 
-    if token:
-        found = fetch_lyrics_spotify(track, token)
-        if found:
-            return found
-    return fetch_lyrics_plain(track)
+    # 4) Si Spotify interno tenía líneas (sin backs) y LRCLIB nada mejor, devolverlo
+    # combinado con detección de voces alternadas
+    if token and 'spotify_no_backs' in dir():
+        merged = _merge_alternating_voices(spotify_no_backs)
+        if _has_backs(merged):
+            return merged
+        return spotify_no_backs
+
+    # 5) lyrics.ovh — última instancia
+    return fetch_lyrics_plain(track) or _merge_alternating_voices([])
+
+
+def _has_backs(lines):
+    """True si al menos una línea tiene campo `back`."""
+    return any("back" in l for l in lines)
 
 
 # ---------------------------------------------------------------- ritmo (audio analysis)
