@@ -1,0 +1,517 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fiesta Visualizer</title>
+<style>
+  @font-face{font-family:'SpaceGrotesk';src:url('/fonts/spacegrotesk.woff2') format('woff2');font-display:swap}
+  @font-face{font-family:'ArcadeClassic';src:url('/fonts/arcadeclassic_full.woff') format('woff');font-display:swap}
+  :root{
+    --fs:7vw; --tc:#fff;
+    --lyric-font:'ArcadeClassic',monospace;
+    --scan-op:.35; --mask-op:.16; --vig-op:.55; --noise-op:.07;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  html,body{height:100%;overflow:hidden;font-family:"Segoe UI",system-ui,sans-serif;background:#000;
+    animation:powerOn 1.1s steps(1,end) 1, crtFlicker 7s 1.1s infinite}
+  body.flicker-off{animation:powerOn 1.1s steps(1,end) 1}
+  @keyframes powerOn{0%{opacity:0;transform:scaleY(.015)}18%{opacity:.7}30%{opacity:.12}44%{opacity:.95}55%{opacity:.25}70%{opacity:1;transform:scaleY(1)}100%{opacity:1}}
+  @keyframes crtFlicker{0%,100%{opacity:1}93.5%{opacity:1}94%{opacity:.9}94.5%{opacity:1}96.5%{opacity:.95}97%{opacity:1}}
+
+  /* ====== PANTALLA: cristal curvado + inclinación + deriva analógica ====== */
+  #screen{position:fixed;inset:0;z-index:0;border-radius:2.6vmin;overflow:hidden;
+    transform:perspective(1100px) rotateX(1.1deg) rotateY(.4deg);
+    transform-origin:50% 45%;
+    animation:screenDrift 11s ease-in-out infinite alternate}
+  #screen.tilt-off{transform:none;animation:none}
+  @keyframes screenDrift{
+    0%{transform:perspective(1100px) rotateX(1.1deg) rotateY(.4deg) translate(0,0)}
+    33%{transform:perspective(1100px) rotateX(1.18deg) rotateY(.35deg) translate(.5px,-.3px)}
+    66%{transform:perspective(1100px) rotateX(1.04deg) rotateY(.45deg) translate(-.4px,.4px)}
+    100%{transform:perspective(1100px) rotateX(1.1deg) rotateY(.4deg) translate(0,0)}}
+
+  #bg{position:absolute;inset:0;background:#101014}
+  /* SIN transición: colores ABRUPTO en el beat exacto */
+  #flash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none}
+  #pbar{position:absolute;top:0;left:0;height:5px;width:0%;background:rgba(255,255,255,.9);z-index:6;transition:width .2s linear}
+
+  /* ====== TEXTURA CRT ====== */
+  #crt{position:absolute;inset:0;z-index:7;pointer-events:none;border-radius:2.6vmin;overflow:hidden;
+    background:
+      radial-gradient(ellipse 90% 24% at 50% -6%, rgba(255,255,255,.13), transparent 68%),
+      radial-gradient(ellipse 70% 45% at 15% 110%, rgba(130,190,255,.07), transparent 60%);
+    box-shadow:inset 0 0 13vmin rgba(0,0,0,.62), inset 0 0 3.2vmin rgba(0,0,0,.5)}
+  #crt::before{content:"";position:absolute;inset:0; /* scanlines */
+    background:repeating-linear-gradient(0deg, rgba(0,0,0,var(--scan-op)) 0 2px, transparent 2px 5px)}
+  #crt::after{content:"";position:absolute;inset:0; /* fósforos RGB + viñeta */
+    background:
+      radial-gradient(ellipse 130% 130% at 50% 50%, transparent 50%, rgba(0,0,0,var(--vig-op)) 100%),
+      repeating-linear-gradient(90deg, rgba(255,0,0,var(--mask-op)) 0 3px, rgba(0,255,0,var(--mask-op)) 3px 6px, rgba(0,0,255,var(--mask-op)) 6px 9px)}
+  #noise{position:absolute;inset:0;z-index:8;pointer-events:none;opacity:var(--noise-op);
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='200'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.5' numOctaves='2' stitchTiles='stitch'/></filter><rect width='200' height='200' filter='url(%23n)'/></svg>");
+    animation:noiseShift .4s steps(5) infinite}
+  @keyframes noiseShift{0%{background-position:0 0}20%{background-position:-90px 44px}40%{background-position:63px -72px}60%{background-position:-44px 82px}80%{background-position:104px 31px}100%{background-position:0 0}}
+  #refresh{position:absolute;left:0;right:0;height:13vh;z-index:8;pointer-events:none;opacity:0;
+    background:linear-gradient(180deg,transparent,rgba(255,255,255,.08) 42%,rgba(255,255,255,.17) 50%,rgba(255,255,255,.08) 58%,transparent);
+    animation:roll 8s linear infinite}
+  #refresh.hidden-refresh{display:none}
+  @keyframes roll{0%{top:-18vh;opacity:0}7%{opacity:1}93%{opacity:1}100%{top:118vh;opacity:0}}
+
+  #top{position:absolute;top:0;left:0;right:0;display:flex;align-items:center;gap:14px;padding:16px 76px 16px 20px;color:var(--tc);transition:color .2s;z-index:5;background:linear-gradient(rgba(0,0,0,.28),transparent)}
+  #cover{width:54px;height:54px;border-radius:6px;object-fit:cover;background:rgba(255,255,255,.15)}
+  #meta{min-width:0}
+  #song{font-family:'SpaceGrotesk',sans-serif;font-weight:700;font-size:15px;letter-spacing:.3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:0 1px 8px rgba(0,0,0,.5)}
+  #artist{font-size:13px;opacity:.8;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:0 1px 8px rgba(0,0,0,.5)}
+  #badge{position:absolute;top:16px;right:62px;font-size:11px;font-weight:700;letter-spacing:1.5px;padding:5px 10px;border-radius:2px;background:rgba(0,0,0,.45);color:#ffd54a;z-index:5;display:none;font-family:'SpaceGrotesk',sans-serif}
+  #badge.egg{color:#fff;background:rgba(0,0,0,.6);letter-spacing:2px}
+  #gear{position:absolute;top:10px;right:12px;width:40px;height:40px;border-radius:2px;border:none;background:rgba(0,0,0,.38);color:#fff;font-size:19px;cursor:pointer;z-index:10}
+
+  /* ====== PANEL DE AJUSTES ====== */
+  #panel{position:absolute;top:58px;right:12px;width:300px;max-height:82vh;overflow-y:auto;background:rgba(12,12,18,.95);color:#fff;border-radius:4px;padding:14px 16px;z-index:10;display:none;box-shadow:0 12px 44px rgba(0,0,0,.55);border:1px solid rgba(255,255,255,.1)}
+  #panel h3{margin:12px 0 8px;font-size:10px;letter-spacing:2px;text-transform:uppercase;opacity:.55;font-family:'SpaceGrotesk',sans-serif;border-bottom:1px solid rgba(255,255,255,.12);padding-bottom:4px}
+  #panel h3:first-child{margin-top:0}
+  .row{margin-bottom:10px;font-size:12.5px}
+  .row label{display:block;margin-bottom:4px;opacity:.9}
+  .row .val{float:right;opacity:.6;font-size:11px}
+  .row input[type=range]{width:100%;accent-color:#1db954}
+  .row select,.row button{width:100%;padding:8px;border-radius:4px;border:none;font-size:12.5px;cursor:pointer}
+  .chk{display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:12.5px}
+  .chk input{accent-color:#1db954}
+  .btn{background:#1db954;color:#fff;font-weight:700}
+  .btn2{background:#3a3a46;color:#fff}
+  #panel::-webkit-scrollbar{width:6px}
+  #panel::-webkit-scrollbar-thumb{background:rgba(255,255,255,.2);border-radius:3px}
+
+  /* ====== LETRA ====== */
+  #lyrics{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:11vh 6vw;color:var(--tc);transition:color .15s;z-index:2}
+  #lyrics.no-glow .line{text-shadow:none}
+  #lyrics.upper .line{text-transform:uppercase}
+  #lyrics.egg .line{text-transform:uppercase;letter-spacing:.03em}
+  /* 🐰 huevo EOO: el texto crece en horizontal y sale de la pantalla */
+  #lyrics.egg-eoo .line{position:fixed;left:50%;top:50%;transform:translateY(-50%);white-space:nowrap;max-width:none;letter-spacing:0}
+  /* huevo: sin fósforos RGB (se queda la viñeta) */
+  #crt.no-mask::after{background:radial-gradient(ellipse 130% 130% at 50% 50%, transparent 50%, rgba(0,0,0,var(--vig-op)) 100%)}
+  .line{font-family:var(--lyric-font);font-size:var(--fs);line-height:1.45;max-width:88vw;
+    text-shadow:0 0 2.5vmin rgba(255,255,255,.18), 0 2px 8px rgba(0,0,0,.45)}
+  #lineNone{position:absolute;inset:0;display:none;align-items:center;justify-content:center;text-align:center;padding:8vw;font-size:calc(var(--fs)*.5);color:var(--tc);z-index:2;font-family:'SpaceGrotesk',sans-serif;font-weight:700;transition:color .15s}
+  #msg{position:absolute;inset:0;display:none;align-items:center;justify-content:center;text-align:center;padding:8vw;font-size:clamp(18px,3.4vw,34px);color:var(--tc);z-index:3;font-family:'SpaceGrotesk',sans-serif;font-weight:700;line-height:1.6;white-space:pre-line;transition:color .15s;text-shadow:0 0 3vmin rgba(255,255,255,.14)}
+  #source{position:absolute;bottom:9px;left:0;right:0;text-align:center;font-size:11px;opacity:.55;color:var(--tc);z-index:4;font-family:'SpaceGrotesk',sans-serif;letter-spacing:1.5px;transition:color .15s;text-shadow:0 1px 6px rgba(0,0,0,.45)}
+  #bigLogin{position:absolute;bottom:44px;left:50%;transform:translateX(-50%);display:none;background:#1db954;color:#fff;border:none;border-radius:2px;padding:18px 34px;font-size:16px;font-weight:700;cursor:pointer;z-index:11;box-shadow:0 8px 30px rgba(0,0,0,.45);font-family:'SpaceGrotesk',sans-serif;letter-spacing:.5px}
+  #bigLogin:hover{background:#1ed760}
+
+  /* ====== CAMBIO DE CANAL (TV antigua) ====== */
+  #channel{position:absolute;inset:0;z-index:9;pointer-events:none;visibility:hidden}
+  #channel.on{visibility:visible}
+  #chanStatic{position:absolute;inset:0;opacity:0;
+    background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/></filter><rect width='220' height='220' filter='url(%23n)'/></svg>");
+    background-size:220px 220px;filter:contrast(1.7) brightness(1.15)}
+  #channel.on #chanStatic{animation:stNoise .45s steps(8) 1}
+  @keyframes stNoise{
+    0%{opacity:0;background-position:0 0}
+    8%{opacity:1}
+    12%{background-position:-160px 40px}
+    22%{background-position:90px -120px}
+    32%{background-position:-50px 150px}
+    42%{background-position:130px 60px}
+    52%{background-position:-110px -80px}
+    62%{background-position:70px -30px}
+    72%{background-position:-30px 110px}
+    82%{background-position:140px -140px}
+    92%{opacity:1}
+    100%{opacity:0;background-position:0 0}}
+  #chanBars{position:absolute;inset:0;opacity:0;
+    background:repeating-linear-gradient(90deg,
+      #c0c0c0 0 12.5%, #c0c000 12.5% 25%, #00c0c0 25% 37.5%, #00c000 37.5% 50%,
+      #c000c0 50% 62.5%, #c00000 62.5% 75%, #0000c0 75% 87.5%, #101010 87.5% 100%)}
+  #channel.on #chanBars{animation:barsSweep .5s steps(1) 1}
+  @keyframes barsSweep{
+    0%{opacity:0;transform:scaleY(.02);background-position:0 0}
+    12%{opacity:.95;transform:scaleY(1)}
+    30%{background-position:0 -30px}
+    55%{opacity:.9;transform:scaleY(1.03)}
+    70%{background-position:0 45px}
+    85%{opacity:.5}
+    100%{opacity:0;transform:scaleY(.05);background-position:0 90px}}
+</style>
+</head>
+<body>
+<div id="screen">
+  <div id="bg"></div>
+  <div id="flash"></div>
+  <div id="crt"></div>
+  <div id="noise"></div>
+  <div id="refresh"></div>
+  <div id="pbar"></div>
+
+  <div id="top">
+    <img id="cover" alt="">
+    <div id="meta"><div id="song">—</div><div id="artist">—</div></div>
+  </div>
+  <button id="gear" title="Ajustes">⚙</button>
+  <div id="badge">DEMO</div>
+
+  <div id="panel">
+    <h3>Letra</h3>
+    <div class="row"><label>Tamaño: <span class="val" id="fsVal">7</span></label>
+      <input id="fsRange" type="range" min="3" max="16" step="0.5" value="7"></div>
+    <div class="row"><label>Fuente</label>
+      <select id="fontSel">
+        <option value="arcade">Arcade Classic</option>
+        <option value="grotesk">Space Grotesk</option>
+        <option value="system">Sistema</option>
+      </select></div>
+    <div class="row"><label>Palabras por frase: <span class="val" id="phraseVal">4</span></label>
+      <input id="phraseRng" type="range" min="2" max="8" step="1" value="4"></div>
+    <div class="chk"><input id="upperChk" type="checkbox"> MAYÚSCULAS</div>
+    <div class="chk"><input id="glowChk" type="checkbox" checked> Resplandor</div>
+
+    <h3>Color y ritmo</h3>
+    <div class="row"><label>Cambio de color</label>
+      <select id="ctiming">
+        <option value="bars">Downbeats — exacto a beatdrops</option>
+        <option value="beats">Cada beat (frenético)</option>
+        <option value="sections">Solo drops</option>
+      </select></div>
+    <div class="row"><label>Paleta</label>
+      <select id="cmode">
+        <option value="rgb">RGB aleatorio puro</option>
+        <option value="pastel">HSV pastel</option>
+        <option value="byn">Blanco y negro</option>
+      </select></div>
+    <div class="chk"><input id="pulseChk" type="checkbox" checked> Pulso blanco en cada beat</div>
+
+    <h3>Pantalla CRT</h3>
+    <div class="row"><label>Scanlines: <span class="val" id="scanVal">70</span></label>
+      <input id="scanRng" type="range" min="0" max="100" step="1" value="70"></div>
+    <div class="row"><label>Fósforos RGB: <span class="val" id="maskVal">60</span></label>
+      <input id="maskRng" type="range" min="0" max="100" step="1" value="60"></div>
+    <div class="row"><label>Viñeta/curvatura: <span class="val" id="vigVal">70</span></label>
+      <input id="vigRng" type="range" min="0" max="100" step="1" value="70"></div>
+    <div class="row"><label>Ruido: <span class="val" id="noiseVal">50</span></label>
+      <input id="noiseRng" type="range" min="0" max="100" step="1" value="50"></div>
+    <div class="chk"><input id="flickChk" type="checkbox" checked> Flicker</div>
+    <div class="chk"><input id="tiltChk" type="checkbox" checked> Inclinación de pantalla</div>
+    <div class="chk"><input id="refChk" type="checkbox" checked> Banda de refresco</div>
+
+    <h3>Efectos</h3>
+    <div class="chk"><input id="chanChk" type="checkbox" checked> Animación de canal al cambiar canción</div>
+    <div class="row"><button id="testChan" class="btn2">📺 Probar animación de canal</button></div>
+
+    <h3>Cuenta</h3>
+    <div class="row"><button id="loginBtn" class="btn">Conectar con Spotify</button></div>
+    <div class="row"><button id="logoutBtn" class="btn2">Desconectar</button></div>
+  </div>
+
+  <div id="lyrics"><div class="line" id="lCur"></div></div>
+  <div id="lineNone">📝 SIN LETRAS SINCRONIZADAS</div>
+  <div id="msg"></div>
+  <div id="source">LETRAS: LRCLIB + SPOTIFY + LYRICS.OVH · RITMO: AUDIO ANALYSIS</div>
+  <button id="bigLogin">🎵 CONECTAR CON SPOTIFY</button>
+  <div id="channel"><div id="chanStatic"></div><div id="chanBars"></div></div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+let S = null, curTrack = null, lineIdx = -1, lastShown = null;
+let beatPtr = 0, barPtr = 0, secPtr = 0;
+let playing = false;
+let pos = 0, posAt = 0, speed = 0;       // reloj local con corrección de fase
+
+const FONTS = {
+  arcade: "'ArcadeClassic',monospace",
+  grotesk: "'SpaceGrotesk',sans-serif",
+  system: "system-ui,sans-serif",
+};
+const CFG_DEFAULTS = {
+  fs: 7, font: "arcade", phrase: 4, upper: false, glow: true,
+  timing: "bars", mode: "rgb", pulse: true,
+  scan: 70, mask: 60, vig: 70, noise: 50, flicker: true, tilt: true, refresh: true,
+  channel: true,
+};
+const cfg = Object.assign({}, CFG_DEFAULTS);
+try { Object.assign(cfg, JSON.parse(localStorage.getItem("fv_cfg") || "{}")); } catch (e) {}
+
+/* ---------- controles ---------- */
+$("gear").onclick = () => { $("panel").style.display = $("panel").style.display === "none" ? "block" : "none"; };
+function bindRange(id, key, valId, fmt) {
+  const el = $(id);
+  el.value = cfg[key];
+  el.oninput = e => { cfg[key] = +e.target.value; $(valId).textContent = fmt ? fmt(cfg[key]) : cfg[key]; save(); applyCfg(); };
+  if (valId) $(valId).textContent = cfg[key];
+}
+function bindChk(id, key) {
+  const el = $(id);
+  el.checked = !!cfg[key];
+  el.onchange = e => { cfg[key] = e.target.checked; save(); applyCfg(); };
+}
+function bindSel(id, key) {
+  const el = $(id);
+  el.value = cfg[key];
+  el.onchange = e => { cfg[key] = e.target.value; save(); applyCfg(); };
+}
+bindRange("fsRange", "fs", "fsVal");
+bindRange("phraseRng", "phrase", "phraseVal", v => v + " palabras");
+bindRange("scanRng", "scan", "scanVal");
+bindRange("maskRng", "mask", "maskVal");
+bindRange("vigRng", "vig", "vigVal");
+bindRange("noiseRng", "noise", "noiseVal");
+bindChk("upperChk", "upper"); bindChk("glowChk", "glow"); bindChk("pulseChk", "pulse");
+bindChk("flickChk", "flicker"); bindChk("tiltChk", "tilt"); bindChk("refChk", "refresh");
+bindChk("chanChk", "channel");
+bindSel("fontSel", "font"); bindSel("ctiming", "timing"); bindSel("cmode", "mode");
+$("testChan").onclick = playChannel;
+$("loginBtn").onclick = () => { location.href = S && S.logged_in ? "/logout" : "/login"; };
+$("logoutBtn").onclick = () => { location.href = "/logout"; };
+$("bigLogin").onclick = () => { location.href = "/login"; };
+
+function save() { localStorage.setItem("fv_cfg", JSON.stringify(cfg)); }
+function applyCfg() {
+  const r = document.documentElement.style;
+  r.setProperty("--fs", cfg.fs + "vw");
+  r.setProperty("--lyric-font", FONTS[cfg.font] || FONTS.arcade);
+  r.setProperty("--scan-op", (cfg.scan / 100 * 0.45).toFixed(3));
+  r.setProperty("--mask-op", (cfg.mask / 100 * 0.30).toFixed(3));
+  r.setProperty("--vig-op", (cfg.vig / 100 * 0.80).toFixed(3));
+  r.setProperty("--noise-op", (cfg.noise / 100 * 0.15).toFixed(3));
+  document.body.classList.toggle("flicker-off", !cfg.flicker);
+  $("screen").classList.toggle("tilt-off", !cfg.tilt);
+  $("refresh").classList.toggle("hidden-refresh", !cfg.refresh);
+  const ly = $("lyrics");
+  ly.classList.toggle("no-glow", !cfg.glow);
+  ly.classList.toggle("upper", cfg.upper);
+  applyEggFont();
+}
+
+/* ---------- 🐰 easter egg EOO (Bad Bunny): B/N + Impact ---------- */
+let eggTrack = false, eggActive = false, eggKind = null, eggTimer = null;
+
+function eggKindFor(text) {
+  const p = (text || "").toLowerCase();
+  if (p.includes("eoo")) return "eoo";        // E + OOO creciendo hasta salir de pantalla
+  if (p.includes("perreo") || p.includes("tra")) return "perreo";  // PERREO → TRA → TRA
+  return null;
+}
+function stopEgg() {
+  if (eggTimer) { clearTimeout(eggTimer); eggTimer = null; }
+  eggKind = null;
+}
+function setEgg(kind) {
+  stopEgg();
+  if (!kind) {
+    if (lastShown) setLyric(lastShown);   // restaurar letra normal
+    applyEggFont();
+    return;
+  }
+  eggKind = kind;
+  applyEggFont();
+  const el = $("lCur");
+  if (kind === "eoo") {
+    el.style.fontSize = "13vw";
+    el.textContent = "E";                          // arranca con la E…
+    eggTimer = setTimeout(eooStep, 110);           // …y los O se añaden uno a uno
+  } else {
+    el.style.fontSize = "14vw";
+    perreoStep();
+  }
+}
+function eooStep() {
+  const el = $("lCur");
+  if (el.offsetWidth > window.innerWidth * 1.02 || el.textContent.length > 60) el.textContent = "E";
+  else el.textContent += "O";
+  eggTimer = setTimeout(eooStep, 110);
+}
+const PERREO_SEQ = [{ t: "PERREO", d: 800 }, { t: "TRA", d: 400 }, { t: "", d: 160 }, { t: "TRA", d: 400 }];
+let perreoIdx = 0;
+function perreoStep() {
+  const s = PERREO_SEQ[perreoIdx % PERREO_SEQ.length];
+  $("lCur").textContent = s.t;
+  perreoIdx++;
+  eggTimer = setTimeout(perreoStep, s.d);
+}
+function applyEggFont() {
+  const r = document.documentElement.style;
+  r.setProperty("--lyric-font", eggActive ? "Impact,'Arial Black',sans-serif" : (FONTS[cfg.font] || FONTS.arcade));
+  const ly = $("lyrics");
+  ly.classList.toggle("egg", eggActive);
+  ly.classList.toggle("egg-eoo", eggActive && eggKind === "eoo");
+  $("crt").classList.toggle("no-mask", eggActive);   // quitar fósforos RGB durante el huevo
+  if (eggActive) { $("badge").textContent = "🐰 EOO"; $("badge").style.display = "block"; $("badge").classList.add("egg"); }
+  else { $("badge").classList.remove("egg"); }
+}
+function setLyric(text) {
+  $("lCur").textContent = text;
+  const len = Math.max(text.length, 1);
+  const eff = Math.max(Math.min(cfg.fs, 88 / len), 3);
+  $("lCur").style.fontSize = eff + "vw";
+}
+
+/* ---------- estado ---------- */
+async function tick() {
+  try {
+    const r = await fetch("/api/state?mw=" + cfg.phrase, { cache: "no-store" });
+    S = await r.json();
+  } catch (e) { /* servidor reiniciándose */ }
+  if (S) {
+    playing = !!S.is_playing;
+    const serverPos = (S.progress_ms || 0) / 1000;
+    if (playing) {
+      const drift = serverPos - pos;
+      if (Math.abs(drift) > 30) pos = serverPos;
+      else pos += Math.max(-0.35, Math.min(0.35, drift));
+      speed = 1;
+    } else { pos = serverPos; speed = 0; }
+    posAt = performance.now();
+    renderState();
+  }
+  setTimeout(tick, 600);
+}
+
+function showMsg(t) {
+  $("msg").textContent = t; $("msg").style.display = "flex";
+  $("lyrics").style.display = "none"; $("lineNone").style.display = "none";
+}
+function hideMsg() { $("msg").style.display = "none"; $("lyrics").style.display = "flex"; }
+
+function renderState() {
+  if (!S) { showMsg("CONECTANDO…"); return; }
+  $("loginBtn").textContent = S.logged_in ? "✓ CONECTADO (RECONECTAR)" : "CONECTAR CON SPOTIFY";
+  $("logoutBtn").style.display = S.logged_in ? "block" : "none";
+  if (S.error === "premium") { showMsg("⚠️ SPOTIFY RECHAZA LEER EL REPRODUCTOR.\nTU CUENTA NECESITA PREMIUM."); return; }
+  if (S.error === "reconnect") { showMsg("🔑 SESIÓN EXPIRADA.\nPULSA «CONECTAR CON SPOTIFY» PARA RECONECTAR."); return; }
+  if (S.error === "ratelimit") { showMsg("⏳ DEMASIADAS PETICIONES A SPOTIFY… ESPERANDO."); return; }
+  $("bigLogin").style.display = S.logged_in ? "none" : "block";
+  if (!S.track) { showMsg("🎧 REPRODUCE UNA CANCIÓN EN SPOTIFY\nY APARECERÁ AQUÍ LA LETRA EN TIEMPO REAL."); return; }
+  hideMsg();
+
+  if (curTrack !== S.track.id) {
+    const realChange = curTrack !== null;   // null = primera carga o cambio de ajuste (sin animación)
+    curTrack = S.track.id;
+    lineIdx = -1; beatPtr = 0; barPtr = 0; secPtr = 0; lastShown = null; eggActive = false;
+    stopEgg();
+    pos = (S.progress_ms || 0) / 1000; posAt = performance.now();
+    eggTrack = /eoo/i.test(S.track.name) && /bad bunny/i.test(S.track.artist);
+    applyEggFont();
+    $("song").textContent = S.track.name;
+    $("artist").textContent = S.track.artist;
+    if (S.track.cover) { $("cover").src = S.track.cover; $("cover").style.visibility = "visible"; }
+    else $("cover").style.visibility = "hidden";
+    $("lineNone").style.display = S.lyrics.length ? "none" : "flex";
+    $("lyrics").style.display = S.lyrics.length ? "flex" : "none";
+    if (realChange && cfg.channel) playChannel();
+  }
+  if (S.demo) { $("badge").textContent = "DEMO"; $("badge").style.display = "block"; }
+  else if (!eggActive) $("badge").style.display = "none";
+}
+
+/* ---------- bucle principal ---------- */
+function nowPos() {
+  const n = performance.now();
+  const dt = (n - posAt) / 1000;
+  posAt = n; pos += dt * speed;
+  return pos;
+}
+
+function frame() {
+  if (S && curTrack) {
+    const t = nowPos();
+    const L = S.lyrics || [];
+    while (lineIdx + 1 < L.length && L[lineIdx + 1].t <= t) {
+      lineIdx++;
+      const err = t - L[lineIdx].t;
+      if (Math.abs(err) < 0.8) pos -= err * 0.6;
+    }
+    if (lineIdx >= 0 && lineIdx < L.length && L[lineIdx].text !== lastShown) {
+      lastShown = L[lineIdx].text;
+      // 🐰 easter egg: la frase decide el modo (eoo / perreo / normal)
+      const kind = eggTrack ? eggKindFor(lastShown) : null;
+      eggActive = kind !== null;
+      if (kind !== eggKind) setEgg(kind);
+      if (!eggKind) setLyric(lastShown);
+    }
+    if (S.track.duration_ms) {
+      $("pbar").style.width = Math.min(100, t / (S.track.duration_ms / 1000) * 100) + "%";
+    }
+    if (playing) {
+      const B = S.beats || [], BR = S.bars || [], SE = S.sections || [];
+      if (cfg.timing === "beats") {
+        while (beatPtr < B.length && B[beatPtr] <= t) { if (cfg.pulse) pulse(); onColor(); beatPtr++; }
+      } else {
+        while (beatPtr < B.length && B[beatPtr] <= t) { if (cfg.pulse) pulse(); beatPtr++; }
+        if (cfg.timing === "sections") {
+          while (secPtr < SE.length && SE[secPtr] <= t) { onColor(); dropFlash(); secPtr++; }
+        } else {
+          while (barPtr < BR.length && BR[barPtr] <= t) {
+            const err = t - BR[barPtr];
+            if (Math.abs(err) < 1.0) pos -= err * 0.75;
+            onColor(); barPtr++;
+          }
+          while (secPtr < SE.length && SE[secPtr] <= t) {
+            const err2 = t - SE[secPtr];
+            if (Math.abs(err2) < 1.0) pos -= err2 * 0.75;
+            dropFlash(); secPtr++;
+          }
+        }
+      }
+    }
+  }
+  requestAnimationFrame(frame);
+}
+
+/* ---------- color + ritmo ---------- */
+function newColor() {
+  if (eggActive || cfg.mode === "byn") {   // 🐰 EOO / modo B/N: solo escala de grises
+    const v = Math.floor(Math.random() * 256);
+    return `rgb(${v},${v},${v})`;
+  }
+  if (cfg.mode === "pastel") {
+    const h = Math.floor(Math.random() * 360);
+    return `hsl(${h} 85% 62%)`;
+  }
+  return `rgb(${Math.floor(Math.random() * 256)},${Math.floor(Math.random() * 256)},${Math.floor(Math.random() * 256)})`;
+}
+
+function setContrast(css) {
+  const m = css.match(/\d+/g);
+  let lum = 0.5;
+  if (m && m.length >= 3) lum = (m[0] * 299 + m[1] * 587 + m[2] * 114) / 255000;
+  const tc = lum > 0.55 ? "#101018" : "#ffffff";
+  document.documentElement.style.setProperty("--tc", tc);
+}
+
+function onColor() {
+  const c = newColor();
+  $("bg").style.backgroundColor = c;
+  setContrast(c);
+}
+
+function pulse() {
+  const f = $("flash");
+  f.style.transition = "none"; f.style.opacity = "0.12";
+  requestAnimationFrame(() => { f.style.transition = "opacity .35s ease-out"; f.style.opacity = "0"; });
+}
+function dropFlash() {
+  const f = $("flash");
+  f.style.transition = "none"; f.style.opacity = "0.3";
+  requestAnimationFrame(() => { f.style.transition = "opacity .5s ease-out"; f.style.opacity = "0"; });
+}
+
+/* ---------- cambio de canal (TV antigua) ---------- */
+function playChannel() {
+  const ch = $("channel");
+  ch.classList.remove("on");
+  void ch.offsetWidth;
+  ch.classList.add("on");
+  clearTimeout(playChannel._t);
+  playChannel._t = setTimeout(() => ch.classList.remove("on"), 520);
+}
+
+/* ---------- arranque ---------- */
+applyCfg();
+onColor();
+tick();
+requestAnimationFrame(frame);
+if (location.search.includes("chan")) setTimeout(playChannel, 700);   // test visual
+</script>
+</body>
+</html>
