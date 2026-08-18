@@ -425,10 +425,12 @@ async function tick() {
       else if (Math.abs(drift) > 0.5) pos = serverPos;
       else pos += drift * 0.5;
       playing = serverPlaying;
+      speed = serverPlaying ? 1 : 0;
       posAt = performance.now();
     } else if (S && S.track && sameTrack && !samePlaying) {
       // misma canción pero cambió pausa → solo actualizar estado, no recargar
       playing = serverPlaying;
+      speed = serverPlaying ? 1 : 0;
       pos = serverPos;
       posAt = performance.now();
     } else {
@@ -436,6 +438,7 @@ async function tick() {
       const r2 = await fetch("/api/state?mw=" + cfg.phrase, { cache: "no-store" });
       S = await r2.json();
       playing = !!S.is_playing;
+      speed = playing ? 1 : 0;
       pos = serverPos;
       posAt = performance.now();
       renderState();
@@ -447,6 +450,7 @@ async function tick() {
       if (S && S.track) {
         const serverPos = (S.progress_ms || 0) / 1000;
         playing = !!S.is_playing;
+        speed = playing ? 1 : 0;
         const drift = serverPos - pos;
         if (Math.abs(drift) > 0.5) pos = serverPos;
         else pos += drift * 0.5;
@@ -480,6 +484,27 @@ function renderState() {
     lineIdx = -1; beatPtr = 0; barPtr = 0; secPtr = 0; lastShown = null;
     exitEgg();
     pos = (S.progress_ms || 0) / 1000; posAt = performance.now();
+    playing = !!S.is_playing;
+    speed = playing ? 1 : 0;
+    // Forzar sync lock del primer downbeat/línea bajo la nueva posición
+    // (asignando lineIdx a la última línea cuyo t <= pos)
+    const L0 = S.lyrics || [];
+    while (lineIdx + 1 < L0.length && L0[lineIdx + 1].t <= pos) lineIdx++;
+    if (lineIdx >= 0 && lineIdx < L0.length) {
+      lastShown = L0[lineIdx].text;
+      const wasEoo = eggActive;
+      const nowEoo = isEooText(lastShown);
+      const nowEgg = isEggText(lastShown);
+      eggActive = nowEoo || nowEgg;
+      if (eggActive && !wasEoo) enterEgg();
+      else if (!eggActive && wasEoo) exitEgg();
+      applyEggFont();
+      if (nowEoo) { setLyric("E", null); startGrowingE(); }
+      else if (nowEgg) startWordCycle(lastShown);
+      else setLyric(lastShown, L0[lineIdx].back);
+    } else {
+      setLyric("...", null);
+    }
     applyEggFont();
     // Nombre de canción en grande + flash
     $("lCur").textContent = S.track.name || "";
