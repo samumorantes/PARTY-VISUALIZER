@@ -410,20 +410,18 @@ let _tickBusy = false;async function tick() {
     if (!r.ok) throw 0;
     const sync = await r.json();
     const serverNow = performance.now();
-    // progreso del servidor EN EL MOMENTO EXACTO de la respuesta
     let serverPos = (sync.progress_ms || 0) / 1000;
-    // extrapolar: añadir tiempo entre respuesta y nuestro "ahora"
     if (sync.is_playing && sync.ts) {
-      const age = serverNow - (sync.ts * 1000);
+      // sync.ts viene de Python time.time() (epoch Unix); performance.now()
+      // empieza en 0 por pestaña y NO se puede comparar. Date.now() sí comparte epoch.
+      const age = Math.max(0, Date.now() - (sync.ts * 1000));
       serverPos += age / 1000;
     }
     const serverPlaying = !!sync.is_playing;
     const sameTrack = S && S.track && S.track.id && sync.track_id && S.track.id === sync.track_id;
     const samePlaying = serverPlaying === playing;
     // letra activa devuelta por el server (autoridad: posición real de Spotify)
-    if (sync.lyric && S && S.lyrics) {
-      S.lyric = sync.lyric;
-    }
+    if (sync.lyric && S && S.lyrics) { S.lyric = sync.lyric; }
     if (S && S.track && sameTrack && samePlaying) {
       // misma canción, mismo estado → corrección agresiva del drift
       const drift = serverPos - pos;
@@ -447,7 +445,13 @@ let _tickBusy = false;async function tick() {
       speed = playing ? 1 : 0;
       pos = serverPos;
       posAt = performance.now();
+      // inicializar punteros de ritmo según la posición actual
+      const B = S.beats||[], BR = S.bars||[], SE = S.sections||[];
+      while(beatPtr < B.length && B[beatPtr] <= pos) beatPtr++;
+      while(barPtr  < BR.length && BR[barPtr]  <= pos) barPtr++;
+      while(secPtr  < SE.length && SE[secPtr]  <= pos) secPtr++;
       renderState();
+      onColor();
     }
   } catch (e) {
     try {
@@ -464,16 +468,16 @@ let _tickBusy = false;async function tick() {
         renderState();
       }
     } catch (e2) { /* servidor apagado */ }
-    }
-    _tickBusy = false;
-    setTimeout(tick, 250);   // 4 polls/s — SIEMPRE se reagenda, incluso si hubo error
-    }
+  }
+  _tickBusy = false;
+  setTimeout(tick, 250);
+}
 
 function showMsg(t) {
-  $("msg").textContent = t; $("msg").style.display = "flex";
-  $("lyrics").style.display = "none"; $("lineNone").style.display = "none";
+  $("#msg").textContent = t; $("#msg").style.display = "flex";
+  $("#lyrics").style.display = "none"; $("#lineNone").style.display = "none";
 }
-function hideMsg() { $("msg").style.display = "none"; $("lyrics").style.display = "flex"; }
+function hideMsg() { $("#msg").style.display = "none"; $("#lyrics").style.display = "flex"; }
 
 function renderState() {
   if (!S) { showMsg("CONECTANDO…"); return; }
@@ -493,6 +497,12 @@ function renderState() {
     pos = (S.progress_ms || 0) / 1000; posAt = performance.now();
     playing = !!S.is_playing;
     speed = playing ? 1 : 0;
+    // Calcular punteros de ritmo según la posición actual para no perder
+    // los eventos de color si la canción ya está avanzada (barPtr empieza al final)
+    { const B = S.beats||[], BR = S.bars||[], SE = S.sections||[];
+      while(beatPtr < B.length && B[beatPtr] <= pos) beatPtr++;
+      while(barPtr  < BR.length && BR[barPtr]  <= pos) barPtr++;
+      while(secPtr  < SE.length && SE[secPtr]  <= pos) secPtr++; }
     // Forzar sync lock del primer downbeat/línea bajo la nueva posición
     // (asignando lineIdx a la última línea cuyo t <= pos)
     const L0 = S.lyrics || [];
