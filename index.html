@@ -402,7 +402,9 @@ function setLyric(text, back) {
 }
 
 /* ---------- estado (sync agresivo: 4 polls/s + extrapolación local) ---------- */
-async function tick() {
+let _tickBusy = false;async function tick() {
+  if (_tickBusy) { setTimeout(tick, 250); return; }
+  _tickBusy = true;
   try {
     const r = await fetch("/api/sync", { cache: "no-store" });
     if (!r.ok) throw 0;
@@ -418,6 +420,10 @@ async function tick() {
     const serverPlaying = !!sync.is_playing;
     const sameTrack = S && S.track && S.track.id && sync.track_id && S.track.id === sync.track_id;
     const samePlaying = serverPlaying === playing;
+    // letra activa devuelta por el server (autoridad: posición real de Spotify)
+    if (sync.lyric && S && S.lyrics) {
+      S.lyric = sync.lyric;
+    }
     if (S && S.track && sameTrack && samePlaying) {
       // misma canción, mismo estado → corrección agresiva del drift
       const drift = serverPos - pos;
@@ -458,9 +464,10 @@ async function tick() {
         renderState();
       }
     } catch (e2) { /* servidor apagado */ }
-  }
-  setTimeout(tick, 250);   // 4 polls/s
-}
+    }
+    _tickBusy = false;
+    setTimeout(tick, 250);   // 4 polls/s — SIEMPRE se reagenda, incluso si hubo error
+    }
 
 function showMsg(t) {
   $("msg").textContent = t; $("msg").style.display = "flex";
@@ -506,13 +513,7 @@ function renderState() {
       setLyric("...", null);
     }
     applyEggFont();
-    // Nombre de canción en grande + flash
-    $("lCur").textContent = S.track.name || "";
-    $("lBack").textContent = "";
-    $("lBack").style.display = "none";
-    $("lCur").style.fontSize = "";
-    $("lCur").style.whiteSpace = "normal";
-    $("lCur").style.lineHeight = "";
+    // (el nombre de la canción va abajo, en #song, NO sobreescribimos lCur)
     $("lyrics").classList.add("song-flash");
     setTimeout(() => $("lyrics").classList.remove("song-flash"), 500);
     $("song").textContent = S.track.name;
@@ -541,31 +542,55 @@ function frame() {
   if (S && curTrack) {
     const t = nowPos();
     const L = S.lyrics || [];
-    while (lineIdx + 1 < L.length && L[lineIdx + 1].t <= t) {
-      lineIdx++;
-      const err = t - L[lineIdx].t;
-      if (Math.abs(err) < 0.8) pos -= err * 0.6;
-    }
-    if (lineIdx >= 0 && lineIdx < L.length && L[lineIdx].text !== lastShown) {
-      lastShown = L[lineIdx].text;
-      const wasEoo = eggActive;
-      const nowEoo = isEooText(lastShown);
-      const nowEgg = isEggText(lastShown);
-      eggActive = nowEoo || nowEgg;
-      if (eggActive && !wasEoo) enterEgg();
-      else if (!eggActive && wasEoo) exitEgg();
-      applyEggFont();
-      if (nowEoo) {
-        stopWordCycle();
-        setLyric("E", null);    // E sola, sin back
-        startGrowingE();
-      } else if (nowEgg) {
-        stopGrowingE();
-        startWordCycle(lastShown);
-      } else {
-        stopWordCycle();
-        stopGrowingE();
-        setLyric(lastShown, L[lineIdx].back);  // letra normal + back opcional
+    // Autoridad: si el server nos dijo la línea activa, usarla directamente
+    // (esto es lo que hace que la letra cambie cuando adelantás/atrasás en Spotify)
+    if (S.lyric && S.lyric.text !== undefined) {
+      const sl = S.lyric;
+      if (sl.text !== lastShown) {
+        lastShown = sl.text;
+        lineIdx = sl.idx || 0;
+        const wasEoo = eggActive;
+        const nowEoo = isEooText(lastShown);
+        const nowEgg = isEggText(lastShown);
+        eggActive = nowEoo || nowEgg;
+        if (eggActive && !wasEoo) enterEgg();
+        else if (!eggActive && wasEoo) exitEgg();
+        applyEggFont();
+        if (nowEoo) { stopWordCycle(); setLyric("E", null); startGrowingE(); }
+        else if (nowEgg) { stopGrowingE(); startWordCycle(lastShown); }
+        else { stopWordCycle(); stopGrowingE(); setLyric(lastShown, sl.back); }
+      }
+    } else {
+      // Si la posición retrocedió mucho (seek/adelantar-atrasar), resetear el puntero
+      if (lineIdx >= L.length || (lineIdx > 0 && L[lineIdx] && t < L[lineIdx].t - 0.5)) {
+        lineIdx = -1; lastShown = null;
+      }
+      while (lineIdx + 1 < L.length && L[lineIdx + 1].t <= t) {
+        lineIdx++;
+        const err = t - L[lineIdx].t;
+        if (Math.abs(err) < 0.8) pos -= err * 0.6;
+      }
+      if (lineIdx >= 0 && lineIdx < L.length && L[lineIdx].text !== lastShown) {
+        lastShown = L[lineIdx].text;
+        const wasEoo = eggActive;
+        const nowEoo = isEooText(lastShown);
+        const nowEgg = isEggText(lastShown);
+        eggActive = nowEoo || nowEgg;
+        if (eggActive && !wasEoo) enterEgg();
+        else if (!eggActive && wasEoo) exitEgg();
+        applyEggFont();
+        if (nowEoo) {
+          stopWordCycle();
+          setLyric("E", null);    // E sola, sin back
+          startGrowingE();
+        } else if (nowEgg) {
+          stopGrowingE();
+          startWordCycle(lastShown);
+        } else {
+          stopWordCycle();
+          stopGrowingE();
+          setLyric(lastShown, L[lineIdx].back);  // letra normal + back opcional
+        }
       }
     }
     if (S.track.duration_ms) {
@@ -650,6 +675,14 @@ applyCfg();
 onColor();
 tick();
 requestAnimationFrame(frame);
+// Si la pestaña vuelve a estar visible después de un rato (el browser pausó los timers),
+// forzar un re-sync inmediato para que la letra se ponga al día al instante
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") {
+    _tickBusy = false;   // liberar el flag por si quedó colgado
+    tick();
+  }
+});
 if (location.search.includes("chan")) setTimeout(playChannel, 700);   // test visual
 </script>
 </body>

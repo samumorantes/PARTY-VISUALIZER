@@ -522,7 +522,30 @@ _player_cache = {"data": None, "at": 0.0, "mw": 4}
 _demo_start = time.time()
 # cache del sync: guarda progress_ms + ts + track_id para poder servir todos los polls
 # sin martillar Spotify. track_id se rellena siempre para que el cliente no recargue state.
-_sync_cache = {"prog": 0, "is_playing": False, "track_id": "", "ts": 0.0}
+_sync_cache = {"prog": 0, "is_playing": False, "track_id": "", "ts": 0.0, "lyrics": []}
+
+
+def _current_lyric(lyrics, pos_sec):
+    """Devuelve la línea de letra activa según pos_sec (segundos), o None."""
+    if not lyrics:
+        return None
+    idx = -1
+    for i, l in enumerate(lyrics):
+        if l["t"] <= pos_sec:
+            idx = i
+        else:
+            break
+    if idx < 0:
+        return None
+    cur = lyrics[idx]
+    nxt = lyrics[idx + 1] if idx + 1 < len(lyrics) else None
+    return {
+        "text": cur["text"],
+        "back": cur.get("back"),
+        "t": cur["t"],
+        "next_t": nxt["t"] if nxt else None,
+        "idx": idx,
+    }
 
 
 def demo_state():
@@ -718,8 +741,22 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                 _sync_cache["is_playing"] = player.get("is_playing", False)
                                 _sync_cache["prog"] = player.get("progress_ms", 0) or 0
                                 item = player.get("item") or {}
-                                if item.get("id"):
-                                    _sync_cache["track_id"] = item.get("id")
+                                new_tid = item.get("id", "")
+                                if new_tid and new_tid != _sync_cache["track_id"]:
+                                    # canción nueva: refrescar letras
+                                    _sync_cache["track_id"] = new_tid
+                                    # fetch_lyrics espera {artist, name, ...}, adaptar item
+                                    artists = item.get("artists") or []
+                                    track_for_lyrics = {
+                                        "artist": artists[0]["name"] if artists else "",
+                                        "name": item.get("name", ""),
+                                        "album": (item.get("album") or {}).get("name", ""),
+                                        "duration_ms": item.get("duration_ms", 0),
+                                        "id": new_tid,
+                                    }
+                                    _sync_cache["lyrics"] = fetch_lyrics(track_for_lyrics, tok)
+                                elif not new_tid:
+                                    _sync_cache["track_id"] = new_tid
                             _sync_cache["ts"] = _t
                         # extrapolar siempre desde el cache
                         if _sync_cache["is_playing"]:
@@ -729,6 +766,10 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         out["is_playing"] = _sync_cache["is_playing"]
                         out["track_id"] = _sync_cache["track_id"]
                         out["ts"] = _t
+                        # línea de letra activa para el momento EXACTO del poll
+                        cur = _current_lyric(_sync_cache["lyrics"], _sync_cache["prog"] / 1000.0)
+                        if cur:
+                            out["lyric"] = cur
                 else:
                     elapsed = max(0, _t - _demo_start)
                     cyc = 180.0
