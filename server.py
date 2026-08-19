@@ -522,7 +522,11 @@ _player_cache = {"data": None, "at": 0.0, "mw": 4}
 _demo_start = time.time()
 # cache del sync: guarda progress_ms + ts + track_id para poder servir todos los polls
 # sin martillar Spotify. track_id se rellena siempre para que el cliente no recargue state.
-_sync_cache = {"prog": 0, "is_playing": False, "track_id": "", "ts": 0.0, "lyrics": []}
+_sync_cache = {
+    "prog": 0, "is_playing": False, "track_id": "", "lyrics": [],
+    "pos_at": 0.0,       # instante del reloj local al que corresponde prog
+    "fetched_at": 0.0,   # último GET real a Spotify; NO usar para extrapolar progreso
+}
 
 
 def _current_lyric(lyrics, pos_sec):
@@ -732,42 +736,42 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     out = {"progress_ms": _sync_cache["prog"],
                            "is_playing": _sync_cache["is_playing"],
                            "track_id": _sync_cache["track_id"],
-                           "ts": _t}
+                           "ts": _t, "health": "waiting"}
                     if tok:
-                        # solo refrescar de Spotify si pasaron >1s desde el último fetch
-                        if _t - _sync_cache["ts"] > 1.0 or _sync_cache["ts"] == 0:
+                        # Fuente de verdad: refrescar Spotify 2 veces/segundo.
+                        # pos_at y fetched_at tienen funciones separadas: así el polling
+                        # no bloquea para siempre los seeks/cambios de canción.
+                        if _t - _sync_cache["fetched_at"] >= 0.5 or _sync_cache["fetched_at"] == 0:
                             player = fetch_player(tok)
                             if player:
                                 _sync_cache["is_playing"] = player.get("is_playing", False)
                                 _sync_cache["prog"] = player.get("progress_ms", 0) or 0
+                                _sync_cache["pos_at"] = _t
                                 item = player.get("item") or {}
                                 new_tid = item.get("id", "")
                                 if new_tid and new_tid != _sync_cache["track_id"]:
-                                    # canción nueva: refrescar letras
                                     _sync_cache["track_id"] = new_tid
-                                    # fetch_lyrics espera {artist, name, ...}, adaptar item
                                     artists = item.get("artists") or []
                                     track_for_lyrics = {
                                         "artist": artists[0]["name"] if artists else "",
                                         "name": item.get("name", ""),
                                         "album": (item.get("album") or {}).get("name", ""),
-                                        "duration_ms": item.get("duration_ms", 0),
-                                        "id": new_tid,
+                                        "duration_ms": item.get("duration_ms", 0), "id": new_tid,
                                     }
                                     _sync_cache["lyrics"] = fetch_lyrics(track_for_lyrics, tok)
                                 elif not new_tid:
                                     _sync_cache["track_id"] = new_tid
-                            _sync_cache["ts"] = _t
-                        # extrapolar siempre desde el cache
+                            _sync_cache["fetched_at"] = _t
+                        # Extrapolación pura: no muta el cache ni el timestamp de fetch.
+                        prog = _sync_cache["prog"]
                         if _sync_cache["is_playing"]:
-                            _sync_cache["prog"] += int((_t - _sync_cache["ts"]) * 1000)
-                            _sync_cache["ts"] = _t
-                        out["progress_ms"] = _sync_cache["prog"]
+                            prog += int(max(0, _t - _sync_cache["pos_at"]) * 1000)
+                        out["progress_ms"] = prog
                         out["is_playing"] = _sync_cache["is_playing"]
                         out["track_id"] = _sync_cache["track_id"]
                         out["ts"] = _t
-                        # línea de letra activa para el momento EXACTO del poll
-                        cur = _current_lyric(_sync_cache["lyrics"], _sync_cache["prog"] / 1000.0)
+                        out["health"] = "synced" if _sync_cache["track_id"] else "waiting"
+                        cur = _current_lyric(_sync_cache["lyrics"], prog / 1000.0)
                         if cur:
                             out["lyric"] = cur
                 else:

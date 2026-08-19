@@ -108,6 +108,13 @@
   #lineNone{position:absolute;inset:0;display:none;align-items:center;justify-content:center;text-align:center;padding:8vw;font-size:calc(var(--fs)*.5);color:var(--tc);z-index:2;font-family:'SpaceGrotesk',sans-serif;font-weight:700;transition:color .15s}
   #msg{position:absolute;inset:0;display:none;align-items:center;justify-content:center;text-align:center;padding:8vw;font-size:clamp(18px,3.4vw,34px);color:var(--tc);z-index:3;font-family:'SpaceGrotesk',sans-serif;font-weight:700;line-height:1.6;white-space:pre-line;transition:color .15s;text-shadow:0 0 3vmin rgba(255,255,255,.14)}
   #source{position:absolute;bottom:9px;left:0;right:0;text-align:center;font-size:11px;opacity:.55;color:var(--tc);z-index:4;font-family:'SpaceGrotesk',sans-serif;letter-spacing:1.5px;transition:color .15s;text-shadow:0 1px 6px rgba(0,0,0,.45)}
+  #syncLed{position:absolute;right:17px;bottom:15px;z-index:10;display:flex;align-items:center;gap:7px;
+    font:700 10px/1 'SpaceGrotesk',sans-serif;letter-spacing:1px;color:var(--tc);text-shadow:0 1px 5px #000}
+  #syncLed i{width:10px;height:10px;border-radius:50%;background:#ff3647;box-shadow:0 0 7px #ff3647}
+  #syncLed.waiting i{background:#ffc43d;box-shadow:0 0 7px #ffc43d}
+  #syncLed.synced i{background:#41f37b;box-shadow:0 0 9px #41f37b}
+  #syncLed.offline i{animation:ledBlink .8s steps(2,end) infinite}
+  @keyframes ledBlink{50%{opacity:.18}}
   #bigLogin{position:absolute;bottom:44px;left:50%;transform:translateX(-50%);display:none;background:#1db954;color:#fff;border:none;border-radius:2px;padding:18px 34px;font-size:16px;font-weight:700;cursor:pointer;z-index:11;box-shadow:0 8px 30px rgba(0,0,0,.45);font-family:'SpaceGrotesk',sans-serif;letter-spacing:.5px}
   #bigLogin:hover{background:#1ed760}
 
@@ -221,6 +228,7 @@
   <div id="lineNone">📝 SIN LETRAS SINCRONIZADAS</div>
   <div id="msg"></div>
   <div id="source">LETRAS: LRCLIB + SPOTIFY + LYRICS.OVH · RITMO: AUDIO ANALYSIS</div>
+  <div id="syncLed" class="offline" title="Estado de sincronización"><i></i><span id="syncText">OFFLINE</span></div>
   <button id="bigLogin">🎵 CONECTAR CON SPOTIFY</button>
   <div id="channel"><div id="chanStatic"></div><div id="chanBars"></div></div>
 </div>
@@ -409,6 +417,7 @@ let _tickBusy = false;async function tick() {
     const r = await fetch("/api/sync", { cache: "no-store" });
     if (!r.ok) throw 0;
     const sync = await r.json();
+    setSyncLed(sync.health === "synced" ? "synced" : "waiting");
     const serverNow = performance.now();
     let serverPos = (sync.progress_ms || 0) / 1000;
     if (sync.is_playing && sync.ts) {
@@ -454,6 +463,7 @@ let _tickBusy = false;async function tick() {
       onColor();
     }
   } catch (e) {
+    setSyncLed("offline");
     try {
       const r = await fetch("/api/state?mw=" + cfg.phrase, { cache: "no-store" });
       S = await r.json();
@@ -471,6 +481,13 @@ let _tickBusy = false;async function tick() {
   }
   _tickBusy = false;
   setTimeout(tick, 250);
+}
+
+function setSyncLed(state) {
+  const el = $("syncLed"), txt = $("syncText");
+  if (!el || !txt) return;
+  el.className = state;
+  txt.textContent = state === "synced" ? "SYNC" : state === "waiting" ? "WAIT" : "OFFLINE";
 }
 
 function showMsg(t) {
