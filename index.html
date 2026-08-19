@@ -247,12 +247,14 @@ const FONTS = {
 };
 const CFG_DEFAULTS = {
   fs: 7, font: "arcade", phrase: 4, upper: false, glow: true,
-  timing: "bars", mode: "rgb", pulse: true,
+  timing: "beats", mode: "rgb", pulse: true,
   scan: 70, mask: 60, vig: 70, noise: 50, flicker: true, tilt: true, refresh: true,
   channel: true,
 };
 const cfg = Object.assign({}, CFG_DEFAULTS);
 try { Object.assign(cfg, JSON.parse(localStorage.getItem("fv_cfg") || "{}")); } catch (e) {}
+// La paleta debe reaccionar al beat real, no a barras antiguas guardadas.
+cfg.timing = "beats";
 
 /* ---------- controles ---------- */
 $("gear").onclick = () => { $("panel").style.display = $("panel").style.display === "none" ? "block" : "none"; };
@@ -550,7 +552,7 @@ function renderState() {
     $("lineNone").style.display = S.lyrics.length ? "none" : "flex";
     $("lyrics").style.display = S.lyrics.length ? "flex" : "none";
     hideMsg();   // MOSTRAR lyrics + OCULTAR msg AHORA
-    if (realChange && cfg.channel) playChannel();
+    if (realChange) playChannel();
     return;
   }
   if (S.demo) { $("badge").textContent = "DEMO"; $("badge").style.display = "block"; }
@@ -650,8 +652,10 @@ function frame() {
 }
 
 /* ---------- color + ritmo ---------- */
+const BEAT_PALETTE = ["rgb(255,23,68)", "rgb(255,109,0)", "rgb(255,214,0)", "rgb(0,230,118)", "rgb(0,176,255)", "rgb(101,31,255)", "rgb(213,0,249)"];
+let colorPtr = 0;
 function newColor() {
-  if (eggActive || cfg.mode === "byn") {   // 🐰 EOO / modo B/N: solo escala de grises
+  if (eggActive || cfg.mode === "byn") {
     const v = Math.floor(Math.random() * 256);
     return `rgb(${v},${v},${v})`;
   }
@@ -659,7 +663,7 @@ function newColor() {
     const h = Math.floor(Math.random() * 360);
     return `hsl(${h} 85% 62%)`;
   }
-  return `rgb(${Math.floor(Math.random() * 256)},${Math.floor(Math.random() * 256)},${Math.floor(Math.random() * 256)})`;
+  return BEAT_PALETTE[colorPtr++ % BEAT_PALETTE.length];
 }
 
 function setContrast(css) {
@@ -690,11 +694,14 @@ function dropFlash() {
 /* ---------- cambio de canal (TV antigua) ---------- */
 function playChannel() {
   const ch = $("channel");
+  // Fondo inline: respaldo fiable para que las barras aparezcan incluso si una
+  // animación CSS se salta un frame al cambiar de canción.
+  ch.style.background = "linear-gradient(90deg,#c0c0c0 0 12.5%,#c0c000 12.5% 25%,#00c0c0 25% 37.5%,#00c000 37.5% 50%,#c000c0 50% 62.5%,#c00000 62.5% 75%,#0000c0 75% 87.5%,#101010 87.5% 100%)";
   ch.classList.remove("on");
   void ch.offsetWidth;
   ch.classList.add("on");
   clearTimeout(playChannel._t);
-  playChannel._t = setTimeout(() => ch.classList.remove("on"), 520);
+  playChannel._t = setTimeout(() => { ch.classList.remove("on"); ch.style.background = ""; }, 520);
 }
 
 /* ---------- arranque ---------- */
@@ -710,7 +717,7 @@ document.addEventListener("visibilitychange", () => {
     tick();
   }
 });
-if (location.search.includes("chan")) setTimeout(playChannel, 700);   // test visual
+if (location.search.includes("chan")) playChannel();   // test visual inmediato
 </script>
 </body>
 </html>
