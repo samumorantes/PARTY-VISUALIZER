@@ -592,6 +592,8 @@ def demo_state():
         "bars": beats[::4],
         "sections": beats[::32],
         "tempo": tempo,
+        "mood": "party",
+        "cover": None,
     }
 
 
@@ -606,7 +608,8 @@ def build_state(max_words=4):
         return _player_cache["data"]
     player = fetch_player(token)
     out = {"logged_in": True, "demo": False, "is_playing": False, "progress_ms": 0,
-           "track": None, "lyrics": [], "beats": [], "bars": [], "sections": [], "tempo": 120.0}
+           "track": None, "lyrics": [], "beats": [], "bars": [], "sections": [],
+           "tempo": 120.0, "mood": "party", "cover": None}
     if player.get("error"):
         if player["error"] == "ratelimit" and _player_cache["data"]:
             return _player_cache["data"]  # rate-limit transitorio: sirve el último estado
@@ -625,6 +628,8 @@ def build_state(max_words=4):
     out["lyrics"] = enr["lyrics"]
     out["beats"], out["bars"], out["sections"] = enr["beats"], enr["bars"], enr["sections"]
     out["tempo"] = enr["tempo"]
+    out["mood"] = "chill" if enr["tempo"] < 100 else "party"   # baladas → animación fluida
+    out["cover"] = track.get("cover")
     _player_cache["data"] = out
     _player_cache["at"] = time.time()
     _player_cache["mw"] = max_words

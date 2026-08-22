@@ -32,6 +32,17 @@
     100%{transform:perspective(1100px) rotateX(1.1deg) rotateY(.4deg) translate(0,0)}}
 
   #bg{position:absolute;inset:0;background:#101014}
+  /* MODO CHILL: dos capas de gradiente con la paleta de la portada, transición fluida */
+  #bg.chill{transition:background-color 6s ease-in-out}
+  #bgGrad{position:absolute;inset:-20%;opacity:0;pointer-events:none;
+    background-size:300% 300%;background-position:0% 50%;
+    transition:opacity 2.5s ease-in-out, background-position 14s linear, transform 18s ease-in-out}
+  #bgGrad.on{opacity:.85}
+  #bgGrad.chill-anim{animation:gradFlow 22s ease-in-out infinite alternate}
+  @keyframes gradFlow{
+    0%{background-position:0% 30%;transform:scale(1) rotate(0deg)}
+    50%{background-position:100% 70%;transform:scale(1.12) rotate(2deg)}
+    100%{background-position:0% 30%;transform:scale(1) rotate(0deg)}}
   /* SIN transición: colores ABRUPTO en el beat exacto */
   #flash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none}
   #pbar{position:absolute;top:0;left:0;height:5px;width:0%;background:rgba(255,255,255,.9);z-index:6;transition:width .2s linear}
@@ -156,6 +167,7 @@
 <body>
 <div id="screen">
   <div id="bg"></div>
+  <div id="bgGrad"></div>
   <div id="flash"></div>
   <div id="crt"></div>
   <div id="noise"></div>
@@ -198,6 +210,7 @@
         <option value="byn">Blanco y negro</option>
       </select></div>
     <div class="chk"><input id="pulseChk" type="checkbox" checked> Pulso blanco en cada beat</div>
+    <div class="chk"><input id="moodChk" type="checkbox" checked> Auto: baladas → modo fluido (portada)</div>
 
     <h3>Pantalla CRT</h3>
     <div class="row"><label>Scanlines: <span class="val" id="scanVal">70</span></label>
@@ -249,7 +262,7 @@ const CFG_DEFAULTS = {
   fs: 7, font: "arcade", phrase: 4, upper: false, glow: true,
   timing: "beats", mode: "rgb", pulse: true,
   scan: 70, mask: 60, vig: 70, noise: 50, flicker: true, tilt: true, refresh: true,
-  channel: true,
+  channel: true, autoMood: true,
 };
 const cfg = Object.assign({}, CFG_DEFAULTS);
 try { Object.assign(cfg, JSON.parse(localStorage.getItem("fv_cfg") || "{}")); } catch (e) {}
@@ -282,7 +295,7 @@ bindRange("vigRng", "vig", "vigVal");
 bindRange("noiseRng", "noise", "noiseVal");
 bindChk("upperChk", "upper"); bindChk("glowChk", "glow"); bindChk("pulseChk", "pulse");
 bindChk("flickChk", "flicker"); bindChk("tiltChk", "tilt"); bindChk("refChk", "refresh");
-bindChk("chanChk", "channel");
+bindChk("chanChk", "channel"); bindChk("moodChk", "autoMood");
 bindSel("fontSel", "font"); bindSel("ctiming", "timing"); bindSel("cmode", "mode");
 $("testChan").onclick = playChannel;
 $("loginBtn").onclick = () => { location.href = S && S.logged_in ? "/logout" : "/login"; };
@@ -542,6 +555,14 @@ function renderState() {
     $("artist").textContent = S.track.artist;
     if (S.track.cover) { $("cover").src = S.track.cover; $("cover").style.visibility = "visible"; }
     else $("cover").style.visibility = "hidden";
+    // Modo chill/party autodetectado por BPM (<100 = balada)
+    const newMood = S.mood || (S.tempo && S.tempo < 100 ? "chill" : "party");
+    if (newMood !== mood) {
+      mood = newMood;
+      if (mood === "chill") extractCoverPalette(S.track.cover);
+    }
+    clearChillGradient();
+    if (isChill()) applyChillGradient();
     $("lineNone").style.display = S.lyrics.length ? "none" : "flex";
     $("lyrics").style.display = S.lyrics.length ? "flex" : "none";
     hideMsg();   // MOSTRAR lyrics + OCULTAR msg AHORA
@@ -615,7 +636,7 @@ function frame() {
     if (S.track.duration_ms) {
       $("pbar").style.width = Math.min(100, t / (S.track.duration_ms / 1000) * 100) + "%";
     }
-    if (playing) {
+    if (playing && !isChill()) {
       const B = S.beats || [], BR = S.bars || [], SE = S.sections || [];
       if (cfg.timing === "beats") {
         while (beatPtr < B.length && B[beatPtr] <= t) { if (cfg.pulse) pulse(); onColor(); beatPtr++; }
@@ -644,6 +665,75 @@ function frame() {
 /* ---------- color + ritmo ---------- */
 const BEAT_PALETTE = ["rgb(255,23,68)", "rgb(255,109,0)", "rgb(255,214,0)", "rgb(0,230,118)", "rgb(0,176,255)", "rgb(101,31,255)", "rgb(213,0,249)"];
 let colorPtr = 0;
+// Modo actual: "party" (flashes por beat) o "chill" (gradiente fluido de portada)
+let mood = "party";
+let coverPalette = null;   // [ [r,g,b], ... ] extraída de la portada
+
+function isChill() { return cfg.autoMood && mood === "chill" && !eggActive && cfg.mode !== "byn"; }
+
+/* Extrae los colores dominantes de la portada del álbum (mini-canvas, sin CORS) */
+function extractCoverPalette(url) {
+  if (!url) { coverPalette = null; return; }
+  const img = new Image();
+  img.crossOrigin = "anonymous";
+  img.onload = () => {
+    try {
+      const c = document.createElement("canvas");
+      const W = 24, H = 24;
+      c.width = W; c.height = H;
+      const ctx = c.getContext("2d");
+      ctx.drawImage(img, 0, 0, W, H);
+      const px = ctx.getImageData(0, 0, W, H).data;
+      // cuantizar a cubetas de 32 y contar frecuencia
+      const buckets = {};
+      for (let i = 0; i < px.length; i += 4) {
+        const r = px[i], g = px[i+1], b = px[i+2];
+        const key = (r>>5) + "," + (g>>5) + "," + (b>>5);
+        buckets[key] = (buckets[key] || []).concat([[r,g,b]]);
+      }
+      // top 5 cubetas por frecuencia → color promedio
+      const top = Object.values(buckets)
+        .sort((a,b) => b.length - a.length).slice(0, 5)
+        .map(arr => {
+          let r=0,g=0,b=0;
+          for (const p of arr){ r+=p[0]; g+=p[1]; b+=p[2]; }
+          const n = arr.length;
+          return [Math.round(r/n), Math.round(g/n), Math.round(b/n)];
+        });
+      if (top.length >= 2) {
+        coverPalette = top;
+        if (isChill()) applyChillGradient();   // refrescar gradiente con paleta real
+      }
+    } catch (e) { coverPalette = null; }   // canvas tainted → paleta null
+  };
+  img.src = url;
+}
+
+/* Gradiente fluido con la paleta de la portada (como Apple Music) */
+function applyChillGradient() {
+  const grad = $("bgGrad");
+  let cols = (coverPalette || [[120,60,90],[40,40,60],[200,120,80]]).slice(0, 3);
+  // asegurar contraste: oscurecer colores muy claros
+  cols = cols.map(c => {
+    const lum = (c[0]*299 + c[1]*587 + c[2]*114) / 255000;
+    if (lum > 0.72) return c.map(x => Math.round(x * 0.55));   // aclarar demasiado → oscurecer
+    if (lum < 0.08) return c.map(x => Math.min(255, x * 2.2 + 20));
+    return c;
+  });
+  grad.style.background =
+    `linear-gradient(135deg, rgb(${cols[0]}), rgb(${cols[1] || cols[0]}), rgb(${cols[2] || cols[0]}))`;
+  grad.classList.add("on", "chill-anim");
+  $("bg").classList.add("chill");
+  // color base = primer tono (para transiciones suaves entre canciones)
+  $("bg").style.backgroundColor = `rgb(${cols[0]})`;
+  setContrast(`rgb(${cols[0].join(",")})`);
+}
+
+/* Volver al modo fiesta */
+function clearChillGradient() {
+  $("bgGrad").classList.remove("on", "chill-anim");
+  $("bg").classList.remove("chill");
+}
 function newColor() {
   if (eggActive || cfg.mode === "byn") {
     const v = Math.floor(Math.random() * 256);
