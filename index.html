@@ -32,17 +32,10 @@
     100%{transform:perspective(1100px) rotateX(1.1deg) rotateY(.4deg) translate(0,0)}}
 
   #bg{position:absolute;inset:0;background:#101014}
-  /* MODO CHILL: dos capas de gradiente con la paleta de la portada, transición fluida */
-  #bg.chill{transition:background-color 6s ease-in-out}
-  #bgGrad{position:absolute;inset:-20%;opacity:0;pointer-events:none;
-    background-size:300% 300%;background-position:0% 50%;
-    transition:opacity 2.5s ease-in-out, background-position 14s linear, transform 18s ease-in-out}
-  #bgGrad.on{opacity:.85}
-  #bgGrad.chill-anim{animation:gradFlow 22s ease-in-out infinite alternate}
-  @keyframes gradFlow{
-    0%{background-position:0% 30%;transform:scale(1) rotate(0deg)}
-    50%{background-position:100% 70%;transform:scale(1.12) rotate(2deg)}
-    100%{background-position:0% 30%;transform:scale(1) rotate(0deg)}}
+  /* MODO CHILL: blobs fluidos con la paleta de la portada (canvas animado al ritmo) */
+  #fluidCanvas{position:absolute;inset:0;opacity:0;pointer-events:none;
+    transition:opacity 3s ease-in-out}
+  #fluidCanvas.on{opacity:.92}
   /* SIN transición: colores ABRUPTO en el beat exacto */
   #flash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none}
   #pbar{position:absolute;top:0;left:0;height:5px;width:0%;background:rgba(255,255,255,.9);z-index:6;transition:width .2s linear}
@@ -167,7 +160,7 @@
 <body>
 <div id="screen">
   <div id="bg"></div>
-  <div id="bgGrad"></div>
+  <canvas id="fluidCanvas"></canvas>
   <div id="flash"></div>
   <div id="crt"></div>
   <div id="noise"></div>
@@ -331,7 +324,7 @@ function applyCfg() {
     mood = cfg.moodOverride !== "auto" ? cfg.moodOverride : serverMood;
     if (mood === "chill" && !coverPalette) extractCoverPalette(S.track.cover);
     clearChillGradient();
-    if (isChill()) applyChillGradient();
+    if (isChill()) startFluid();
   }
 }
 
@@ -578,7 +571,7 @@ function renderState() {
       if (mood === "chill") extractCoverPalette(S.track.cover);
     }
     clearChillGradient();
-    if (isChill()) applyChillGradient();
+    if (isChill()) startFluid();
     $("lineNone").style.display = S.lyrics.length ? "none" : "flex";
     $("lyrics").style.display = S.lyrics.length ? "flex" : "none";
     hideMsg();   // MOSTRAR lyrics + OCULTAR msg AHORA
@@ -652,7 +645,11 @@ function frame() {
     if (S.track.duration_ms) {
       $("pbar").style.width = Math.min(100, t / (S.track.duration_ms / 1000) * 100) + "%";
     }
-    if (playing && !isChill()) {
+    if (playing && isChill()) {
+      // MODO CHILL: los blobs pulsan con cada beat de la canción
+      const B = S.beats || [];
+      while (beatPtr < B.length && B[beatPtr] <= t) { fluidPulse(); beatPtr++; }
+    } else if (playing) {
       const B = S.beats || [], BR = S.bars || [], SE = S.sections || [];
       if (cfg.timing === "beats") {
         while (beatPtr < B.length && B[beatPtr] <= t) { if (cfg.pulse) pulse(); onColor(); beatPtr++; }
@@ -704,12 +701,12 @@ function extractCoverPalette(url) {
       const ctx = c.getContext("2d");
       ctx.drawImage(img, 0, 0, W, H);
       const px = ctx.getImageData(0, 0, W, H).data;
-      // cuantizar a cubetas de 32 y contar frecuencia
+      // cuantizar a cubetas y contar frecuencia
       const buckets = {};
       for (let i = 0; i < px.length; i += 4) {
         const r = px[i], g = px[i+1], b = px[i+2];
         const key = (r>>5) + "," + (g>>5) + "," + (b>>5);
-        buckets[key] = (buckets[key] || []).concat([[r,g,b]]);
+        (buckets[key] = buckets[key] || []).push([r,g,b]);
       }
       // top 5 cubetas por frecuencia → color promedio
       const top = Object.values(buckets)
@@ -722,38 +719,106 @@ function extractCoverPalette(url) {
         });
       if (top.length >= 2) {
         coverPalette = top;
-        if (isChill()) applyChillGradient();   // refrescar gradiente con paleta real
+        if (isChill()) startFluid();   // refrescar fluido con paleta real
       }
     } catch (e) { coverPalette = null; }   // canvas tainted → paleta null
   };
   img.src = url;
 }
 
-/* Gradiente fluido con la paleta de la portada (como Apple Music) */
-function applyChillGradient() {
-  const grad = $("bgGrad");
-  let cols = (coverPalette || [[120,60,90],[40,40,60],[200,120,80]]).slice(0, 3);
-  // asegurar contraste: oscurecer colores muy claros
-  cols = cols.map(c => {
-    const lum = (c[0]*299 + c[1]*587 + c[2]*114) / 255000;
-    if (lum > 0.72) return c.map(x => Math.round(x * 0.55));   // aclarar demasiado → oscurecer
-    if (lum < 0.08) return c.map(x => Math.min(255, x * 2.2 + 20));
-    return c;
-  });
-  grad.style.background =
-    `linear-gradient(135deg, rgb(${cols[0]}), rgb(${cols[1] || cols[0]}), rgb(${cols[2] || cols[0]}))`;
-  grad.classList.add("on", "chill-anim");
-  $("bg").classList.add("chill");
-  // color base = primer tono (para transiciones suaves entre canciones)
-  $("bg").style.backgroundColor = `rgb(${cols[0]})`;
-  setContrast(`rgb(${cols[0].join(",")})`);
+/* ====== FLUIDO INTERACTIVO: blobs que respiran al ritmo de la canción ======
+   Canvas con 5-7 blobs (metaballs suaves) usando la paleta de la portada.
+   Cada beat de la canción: los blobs pulsan (crecen) y uno cambia de color.
+   Sin beat: deriva lenta tipo lava-lamp. Personalizado por canción vía paleta. */
+let fluidRAF = null, fluidBlobs = [], fluidLastBeat = 0, fluidEnergy = 0;
+
+function startFluid() {
+  stopFluid();
+  const cv = $("fluidCanvas");
+  cv.width = innerWidth; cv.height = innerHeight;
+  cv.classList.add("on");
+  // crear blobs desde la paleta de ESTA portada
+  let cols = (coverPalette && coverPalette.length ? coverPalette : [[110,60,120],[50,50,90],[220,130,80],[30,140,150],[180,40,90]]);
+  cols = cols.map(c => adjustTone(c));
+  const n = cols.length + 1;                       // +1 blob oscuro de fondo
+  fluidBlobs = [];
+  for (let i = 0; i < n; i++) {
+    const col = i < cols.length ? cols[i] : [cols[0][0]*0.4|0, cols[0][1]*0.4|0, cols[0][2]*0.55|0];
+    fluidBlobs.push({
+      x: Math.random(), y: Math.random(),
+      r: 0.28 + Math.random()*0.22,               // radio relativo
+      dx: (Math.random()-.5)*0.05, dy: (Math.random()-.5)*0.04,
+      ph: Math.random()*Math.PI*2,                // fase de respiración
+      spd: 0.25 + Math.random()*0.35,
+      color: col.join(","),
+    });
+  }
+  fluidLoop();
+}
+
+function stopFluid() {
+  if (fluidRAF) cancelAnimationFrame(fluidRAF);
+  fluidRAF = null;
+  $("fluidCanvas").classList.remove("on");
+}
+
+function adjustTone(c) {
+  const lum = (c[0]*299 + c[1]*587 + c[2]*114) / 255000;
+  if (lum > 0.72) return c.map(x => Math.round(x * 0.55));
+  if (lum < 0.08) return c.map(x => Math.min(255, Math.round(x * 2.2 + 20)));
+  return c;
+}
+
+function fluidPulse() {          // llamado en cada beat del frame()
+  fluidEnergy = Math.min(1.6, fluidEnergy + 0.85);
+}
+
+function fluidLoop() {
+  fluidRAF = requestAnimationFrame(fluidLoop);
+  const cv = $("fluidCanvas");
+  const ctx = cv.getContext("2d");
+  const W = cv.width, H = cv.height;
+  const nowS = pos || 0;
+  const dt = 1/60;
+
+  // energía decae suavemente → pulso tras cada beat
+  fluidEnergy *= 0.965;
+  const tempo = S.tempo || 120;
+  const breathe = 0.06 * Math.sin(performance.now()/1000 * (tempo/60) * Math.PI);   // respiración al BPM
+  const boost = fluidEnergy * 0.22 + breathe;
+
+  ctx.clearRect(0, 0, W, H);
+  // fondo: primer color oscurecido (mezcla profunda)
+  const base = fluidBlobs.length ? fluidBlobs[fluidBlobs.length-1].color : "20,20,30";
+  ctx.fillStyle = "rgb(" + base + ")";
+  ctx.fillRect(0, 0, W, H);
+  ctx.globalCompositeOperation = "lighter";       // mezcla aditiva = fluido luminoso
+
+  for (const b of fluidBlobs) {
+    // deriva lenta + rebote en bordes
+    b.x += b.dx*dt; b.y += b.dy*dt;
+    if (b.x < -0.1 || b.x > 1.1) b.dx *= -1;
+    if (b.y < -0.1 || b.y > 1.1) b.dy *= -1;
+    b.x = Math.max(-0.15, Math.min(1.15, b.x));
+    b.y = Math.max(-0.15, Math.min(1.15, b.y));
+    // respiración: radio oscila con el BPM + golpe en cada beat
+    const rpx = (b.r + boost*0.35 + 0.08*Math.sin(b.ph + performance.now()/1000*b.spd)) *
+                Math.max(W,H) * 0.75;
+    const cx = b.x*W, cy = b.y*H;
+    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(10, rpx));
+    g.addColorStop(0, `rgba(${b.color},0.55)`);
+    g.addColorStop(0.55, `rgba(${b.color},0.18)`);
+    g.addColorStop(1, `rgba(${b.color},0)`);
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(cx, cy, Math.max(10, rpx), 0, Math.PI*2);
+    ctx.fill();
+  }
+  ctx.globalCompositeOperation = "source-over";
 }
 
 /* Volver al modo fiesta */
-function clearChillGradient() {
-  $("bgGrad").classList.remove("on", "chill-anim");
-  $("bg").classList.remove("chill");
-}
+function clearChillGradient() { stopFluid(); }
 function newColor() {
   if (eggActive || cfg.mode === "byn") {
     const v = Math.floor(Math.random() * 256);
@@ -831,6 +896,11 @@ document.addEventListener("visibilitychange", () => {
     tick();
   }
 });
+// Override por URL (?mood=chill) para pruebas sin tocar localStorage
+try {
+  const mq = new URLSearchParams(location.search).get("mood");
+  if (mq && ["auto","party","chill"].includes(mq)) cfg.moodOverride = mq;
+} catch (e) {}
 if (location.search.includes("chan")) playChannel();   // test visual inmediato
 </script>
 </body>
