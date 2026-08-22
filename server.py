@@ -32,7 +32,7 @@ CONFIG = os.path.join(BASE, "config.json")
 TOKENS = os.path.join(BASE, "token.json")
 PORT = 8888
 REDIRECT_URI = "http://127.0.0.1:%d/callback" % PORT
-SCOPE = "user-read-playback-state user-read-currently-playing"
+SCOPE = "user-read-playback-state user-read-currently-playing user-read-email"
 UA = "FiestaVisualizer/1.0 (proyecto local, Windows)"
 LRCLIB = "https://lrclib.net/api"
 
@@ -821,6 +821,29 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._send(200, json.dumps(out), "application/json; charset=utf-8")
             except Exception as e:
                 self._send(500, json.dumps({"error": str(e)}), "application/json; charset=utf-8")
+        elif p == "/api/queue":
+            # Cola de Spotify: próximas canciones (para el ticker inferior-izquierdo)
+            try:
+                tok = access_token()
+                if not tok:
+                    self._send(200, json.dumps({"queue": []}), "application/json; charset=utf-8")
+                    return
+                st, data = request("https://api.spotify.com/v1/me/player/queue",
+                                   headers={"Authorization": "Bearer " + tok})
+                items = []
+                if st == 200 and isinstance(data, dict):
+                    for it in (data.get("queue") or [])[:5]:
+                        artists = ", ".join(a.get("name", "") for a in it.get("artists", []))
+                        imgs = (it.get("album") or {}).get("images") or []
+                        items.append({
+                            "name": it.get("name", "?"),
+                            "artist": artists,
+                            "cover": imgs[-1]["url"] if imgs else None,
+                        })
+                self._send(200, json.dumps({"queue": items}), "application/json; charset=utf-8")
+            except Exception as e:
+                self._send(200, json.dumps({"queue": [], "error": str(e)}),
+                           "application/json; charset=utf-8")
         elif p == "/login":
             self._login()
         elif p.startswith("/fonts/"):
