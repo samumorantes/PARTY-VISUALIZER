@@ -107,6 +107,10 @@
   .row button:hover, .row select:hover{background:rgba(255,255,255,.18)}
   .chk{display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:12.5px}
   .chk input{accent-color:#1db954;width:15px;height:15px}
+  .linklike{float:right;font-size:10px;letter-spacing:1px;color:#7fe8a4;cursor:pointer;opacity:.9;
+    text-transform:none;border-bottom:1px dotted rgba(127,232,164,.6)}
+  .linklike:hover{opacity:1;color:#a5f5c1}
+  .crt-group{border-left:2px solid rgba(255,255,255,.08);padding-left:10px}
   .btn{background:linear-gradient(135deg,#1db954,#17a34a);color:#fff;font-weight:700;border:none}
   .btn2{background:rgba(255,255,255,.12);color:#fff;border:1px solid rgba(255,255,255,.18)}
   #panel::-webkit-scrollbar{width:5px}
@@ -128,6 +132,21 @@
 
   /* ====== LETRA ====== */
   #lyrics{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:11vh 6vw;color:var(--tc);transition:color .15s;z-index:2}
+  /* OJO DE PEZ: letra cóncava como pantalla curva — centro más cerca, lados lejos */
+  #lyrics.fisheye{perspective:900px}
+  #lyrics.fisheye .line.main{
+    transform:scaleY(1.06);
+    text-shadow:0 0 2.5vmin rgba(255,255,255,.18), 0 2px 8px rgba(0,0,0,.45);
+    animation:fisheyeBreathe 6s ease-in-out infinite alternate}
+  #lyrics.fisheye .line.back{
+    transform:perspective(600px) rotateX(18deg) scale(.96);
+    filter:blur(.4px)}
+  @keyframes fisheyeBreathe{
+    0%{text-shadow:0 0 2.5vmin rgba(255,255,255,.18), 0 3px 10px rgba(0,0,0,.45);
+       letter-spacing:.5px;filter:brightness(1.02) contrast(1.02)}
+    50%{letter-spacing:1.2px}
+    100%{text-shadow:0 0 2.5vmin rgba(255,255,255,.18), 0 3px 10px rgba(0,0,0,.45);
+       letter-spacing:.5px;filter:brightness(1.02) contrast(1.02)}}
   #lyrics.no-glow .line{text-shadow:none}
   #lyrics.upper .line{text-transform:uppercase}
   /* song-flash: cuando cambia de canción se ve un flash blanco */
@@ -194,6 +213,46 @@
     70%{background-position:0 45px}
     85%{opacity:.5}
     100%{opacity:0;transform:scaleY(.05);background-position:0 90px}}
+
+  /* ====== TRANSICIONES ALTERNATIVAS ====== */
+  #transOverlay{position:absolute;inset:0;z-index:9;display:none;pointer-events:none;overflow:hidden}
+  /* obturador de proyector */
+  .shut{position:absolute;left:0;width:100%;height:52%;background:#000;
+    box-shadow:inset 0 6px 24px rgba(0,0,0,.8)}
+  .shut.top{top:0}.shut.bot{bottom:0}
+  .shut-label{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);
+    font:700 14px 'SpaceGrotesk',sans-serif;letter-spacing:4px;color:#fff;opacity:0;z-index:2;
+    text-shadow:0 2px 10px rgba(255,255,255,.35)}
+  #transOverlay.anim-shutter .shut.top{animation:shutTop 1.1s cubic-bezier(.7,0,.3,1) forwards}
+  #transOverlay.anim-shutter .shut.bot{animation:shutBot 1.1s cubic-bezier(.7,0,.3,1) forwards}
+  #transOverlay.anim-shutter .shut-label{animation:shutLabel 1.1s ease forwards}
+  @keyframes shutTop{0%{transform:translateY(-100%)}38%,62%{transform:translateY(0)}100%{transform:translateY(-100%)}}
+  @keyframes shutBot{0%{transform:translateY(100%)}38%,62%{transform:translateY(0)}100%{transform:translateY(100%)}}
+  @keyframes shutLabel{0%,25%{opacity:0}40%,60%{opacity:.95}78%,100%{opacity:0}}
+  /* vinilo girando con la portada al centro */
+  .vinyl{position:absolute;top:50%;left:50%;width:56vmin;height:56vmin;border-radius:50%;
+    transform:translate(-50%,-50%);overflow:hidden;
+    background:repeating-radial-gradient(circle at 50% 50%,
+      #111 0 2px, #1c1c1c 2px 4px);
+    box-shadow:0 10px 60px rgba(0,0,0,.7), inset 0 0 80px rgba(0,0,0,.9)}
+  .vinyl-hole{position:absolute;top:50%;left:50%;width:11vmin;height:11vmin;border-radius:50%;
+    transform:translate(-50%,-50%);background:#000;border:2px solid rgba(255,255,255,.15)}
+  .vinyl-cover{position:absolute;top:50%;left:50%;width:22vmin;height:22vmin;border-radius:50%;
+    object-fit:cover;transform:translate(-50%,-50%);box-shadow:0 0 40px rgba(0,0,0,.5)}
+  #transOverlay.anim-vinyl .vinyl{animation:vinylSpin 1.2s cubic-bezier(.65,0,.35,1) forwards}
+  #transOverlay.anim-vinyl .vinyl-hole{animation:none}
+  #transOverlay.anim-vinyl .vinyl-cover{animation:coverPop 1.2s cubic-bezier(.65,0,.35,1) forwards}
+  @keyframes vinylSpin{
+    0%{transform:translate(-50%,-50%) rotate(0deg) scale(.2);opacity:0}
+    18%{opacity:1}
+    55%{transform:translate(-50%,-50%) rotate(540deg) scale(1.05);opacity:1}
+    80%{transform:translate(-50%,-50%) rotate(720deg) scale(1);opacity:.9}
+    100%{transform:translate(-50%,-50%) rotate(900deg) scale(.15);opacity:0}}
+  @keyframes coverPop{
+    0%,20%{opacity:0;transform:translate(-50%,-50%) scale(.3)}
+    45%{opacity:1}
+    75%{opacity:1;transform:translate(-50%,-50%) scale(1)}
+    100%{opacity:0;transform:translate(-50%,-50%) scale(.4)}}
 </style>
 </head>
 <body>
@@ -257,7 +316,9 @@
       </select></div>
     <div class="chk"><input id="moodChk" type="checkbox" checked> Sugerir chill por palabras clave</div>
 
-    <h3>Pantalla CRT</h3>
+    <h3>📺 Retro CRT <span id="crtAll" class="linklike">todo / nada</span></h3>
+    <div class="crt-group" id="crtGroup">
+    <div class="chk"><input id="scanChk" type="checkbox" checked> Scanlines</div>
     <div class="row"><label>Scanlines: <span class="val" id="scanVal">70</span></label>
       <input id="scanRng" type="range" min="0" max="100" step="1" value="70"></div>
     <div class="row"><label>Fósforos RGB: <span class="val" id="maskVal">60</span></label>
@@ -269,10 +330,18 @@
     <div class="chk"><input id="flickChk" type="checkbox" checked> Flicker</div>
     <div class="chk"><input id="tiltChk" type="checkbox" checked> Inclinación de pantalla</div>
     <div class="chk"><input id="refChk" type="checkbox" checked> Banda de refresco</div>
+    <div class="chk"><input id="fishChk" type="checkbox" checked> Ojo de pez (letra cóncava)</div>
+    </div>
 
     <h3>Efectos</h3>
-    <div class="chk"><input id="chanChk" type="checkbox" checked> Animación de canal al cambiar canción</div>
-    <div class="row"><button id="testChan" class="btn2">📺 Probar animación de canal</button></div>
+    <div class="row"><label>Transición al cambiar canción</label>
+      <select id="transSel">
+        <option value="tv">📺 TV antigua (barras + estática)</option>
+        <option value="shutter">🎬 Obturador de cine</option>
+        <option value="vinyl">💿 Vinilo con la portada</option>
+        <option value="none">Sin transición</option>
+      </select></div>
+    <div class="row"><button id="testChan" class="btn2">Probar transición</button></div>
 
     <h3>Cuenta</h3>
     <div class="row"><button id="loginBtn" class="btn">Conectar con Spotify</button></div>
@@ -290,6 +359,7 @@
   <div id="syncLed" class="offline" title="Estado de sincronización"><i></i><span id="syncText">OFFLINE</span></div>
   <button id="bigLogin">🎵 CONECTAR CON SPOTIFY</button>
   <div id="channel"><div id="chanStatic"></div><div id="chanBars"></div></div>
+  <div id="transOverlay"></div>
 </div>
 
 <script>
@@ -308,7 +378,8 @@ const CFG_DEFAULTS = {
   fs: 7, font: "arcade", phrase: 4, upper: false, glow: true,
   timing: "beats", mode: "rgb", pulse: true,
   scan: 70, mask: 60, vig: 70, noise: 50, flicker: true, tilt: true, refresh: true,
-  channel: true, autoMood: true, moodOverride: "auto",
+  scanOn: true, fish: true, transition: "tv",
+  autoMood: true, moodOverride: "auto",
 };
 const cfg = Object.assign({}, CFG_DEFAULTS);
 try { Object.assign(cfg, JSON.parse(localStorage.getItem("fv_cfg") || "{}")); } catch (e) {}
@@ -341,8 +412,9 @@ bindRange("vigRng", "vig", "vigVal");
 bindRange("noiseRng", "noise", "noiseVal");
 bindChk("upperChk", "upper"); bindChk("glowChk", "glow"); bindChk("pulseChk", "pulse");
 bindChk("flickChk", "flicker"); bindChk("tiltChk", "tilt"); bindChk("refChk", "refresh");
-bindChk("chanChk", "channel"); bindChk("moodChk", "autoMood");
-bindSel("moodSel", "moodOverride");
+bindChk("scanChk", "scanOn"); bindChk("fishChk", "fish");
+bindChk("moodChk", "autoMood");
+bindSel("moodSel", "moodOverride"); bindSel("transSel", "transition");
 bindSel("fontSel", "font"); bindSel("ctiming", "timing"); bindSel("cmode", "mode");
 $("testChan").onclick = playChannel;
 $("loginBtn").onclick = () => { location.href = S && S.logged_in ? "/logout" : "/login"; };
@@ -367,20 +439,46 @@ function updateMoodSwitch() {
 $("moodParty").onclick = () => { cfg.moodOverride = "party"; save(); applyCfg(); };
 $("moodChill").onclick = () => { cfg.moodOverride = "chill"; save(); applyCfg(); };
 
+/* ---------- Retro CRT: activar TODO o NADA de un golpe ---------- */
+const CRT_KEYS = ["scanOn", "flicker", "tilt", "refresh", "fish"];
+$("crtAll").onclick = () => {
+  const allOn = CRT_KEYS.every(k => cfg[k]);
+  const target = !allOn;
+  CRT_KEYS.forEach(k => cfg[k] = target);
+  // también subir/bajar los sliders de intensidad
+  ["scan", "mask", "vig", "noise"].forEach(k => {
+    if (target && !cfg[k]) cfg[k] = 60;
+    if (!target) cfg[k] = 0;
+  });
+  save(); applyCfg();
+  syncCrtControls();
+};
+function syncCrtControls() {
+  // reflejar el estado en los checkboxes y sliders del panel
+  [["scanChk","scanOn"],["flickChk","flicker"],["tiltChk","tilt"],
+   ["refChk","refresh"],["fishChk","fish"]].forEach(([id, key]) => $(id).checked = !!cfg[key]);
+  [["scanRng","scan","scanVal"],["maskRng","mask","maskVal"],
+   ["vigRng","vig","vigVal"],["noiseRng","noise","noiseVal"]].forEach(([id, key, valId]) => {
+    $(id).value = cfg[key]; $(valId).textContent = cfg[key];
+  });
+}
+
 function save() { localStorage.setItem("fv_cfg", JSON.stringify(cfg)); }
 function applyCfg() {
   const r = document.documentElement.style;
   r.setProperty("--fs", cfg.fs + "vw");
   r.setProperty("--lyric-font", FONTS[cfg.font] || FONTS.arcade);
-  r.setProperty("--scan-op", (cfg.scan / 100 * 0.45).toFixed(3));
+  r.setProperty("--scan-op", cfg.scanOn ? (cfg.scan / 100 * 0.45).toFixed(3) : "0");
   r.setProperty("--mask-op", (cfg.mask / 100 * 0.30).toFixed(3));
   r.setProperty("--vig-op", (cfg.vig / 100 * 0.80).toFixed(3));
   r.setProperty("--noise-op", (cfg.noise / 100 * 0.15).toFixed(3));
   document.body.classList.toggle("flicker-off", !cfg.flicker);
   $("screen").classList.toggle("tilt-off", !cfg.tilt);
   $("refresh").classList.toggle("hidden-refresh", !cfg.refresh);
+  $("crt").style.display = cfg.scanOn ? "" : "none";   // scanlines OFF = sin capa CRT
   const ly = $("lyrics");
   ly.classList.toggle("no-glow", !cfg.glow);
+  ly.classList.toggle("fisheye", !!cfg.fish);          // ojo de pez cóncavo
   ly.classList.toggle("upper", cfg.upper);
   applyEggFont();
   // Aplicar el modo visual inmediatamente al cambiar el selector
@@ -1000,20 +1098,51 @@ function dropFlash() {
   requestAnimationFrame(() => { f.style.transition = "opacity .5s ease-out"; f.style.opacity = "0"; });
 }
 
-/* ---------- cambio de canal (TV antigua) ---------- */
+/* ---------- transiciones al cambiar de canción (3 estilos) ---------- */
 function playChannel() {
+  const mode = cfg.transition || "tv";
+  if (mode === "none") return;
+  if (mode === "tv") return playChannelTV();
+  if (mode === "shutter") return playShutter();
+  if (mode === "vinyl") return playVinyl();
+}
+
+/* 1) TV antigua: barras SMPTE + estática (el clásico) */
+function playChannelTV() {
   const ch = $("channel");
-  // Fondo inline: respaldo fiable para que las barras aparezcan incluso si una
-  // animación CSS se salta un frame al cambiar de canción.
   ch.style.background = "linear-gradient(90deg,#c0c0c0 0 12.5%,#c0c000 12.5% 25%,#00c0c0 25% 37.5%,#00c000 37.5% 50%,#c000c0 50% 62.5%,#c00000 62.5% 75%,#0000c0 75% 87.5%,#101010 87.5% 100%)";
   ch.classList.remove("on");
   void ch.offsetWidth;
   ch.classList.add("on");
   clearTimeout(playChannel._t);
   playChannel._t1 && clearTimeout(playChannel._t1);
-  // fase 2: estática tras las barras (efecto completo de sintonía)
-  playChannel._t1 = setTimeout(() => { ch.style.background = ""; }, 300);
+  playChannel._t1 = setTimeout(() => { ch.style.background = ""; }, 300);   // fase estática
   playChannel._t = setTimeout(() => { ch.classList.remove("on"); }, 700);
+}
+
+/* 2) Obturador de proyector: dos paneles se cierran y abren */
+function playShutter() {
+  const s = $("transOverlay");
+  s.innerHTML =
+    '<div class="shut top"></div><div class="shut bot"></div>' +
+    '<div class="shut-label">CAMBIANDO DE TEMA…</div>';
+  s.style.display = "block";
+  void s.offsetWidth;
+  s.classList.add("anim-shutter");
+  setTimeout(() => { s.classList.remove("anim-shutter"); s.style.display = "none"; }, 1100);
+}
+
+/* 3. Vinilo: disco negro gira y sale la nueva portada en el centro */
+function playVinyl() {
+  const s = $("transOverlay");
+  const cover = (S && S.track && S.track.cover) ? S.track.cover : "";
+  s.innerHTML =
+    '<div class="vinyl"><div class="vinyl-hole"></div></div>' +
+    (cover ? '<img class="vinyl-cover" src="' + cover + '">' : '');
+  s.style.display = "block";
+  void s.offsetWidth;
+  s.classList.add("anim-vinyl");
+  setTimeout(() => { s.classList.remove("anim-vinyl"); s.style.display = "none"; }, 1200);
 }
 
 /* ---------- arranque ---------- */
@@ -1033,6 +1162,8 @@ document.addEventListener("visibilitychange", () => {
 try {
   const mq = new URLSearchParams(location.search).get("mood");
   if (mq && ["auto","party","chill"].includes(mq)) cfg.moodOverride = mq;
+  const tq = new URLSearchParams(location.search).get("transition");
+  if (tq && ["tv","shutter","vinyl","none"].includes(tq)) cfg.transition = tq;
 } catch (e) {}
 if (location.search.includes("chan")) playChannel();   // test visual inmediato
 
