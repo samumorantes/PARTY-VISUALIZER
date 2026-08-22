@@ -566,12 +566,17 @@ function renderState() {
     // Modo visual: override manual del usuario > detección del server
     const serverMood = S.mood || "party";
     const newMood = cfg.moodOverride !== "auto" ? cfg.moodOverride : serverMood;
-    if (newMood !== mood || (mood === "chill" && !coverPalette)) {
+    // Fluido SIEMPRE ligado a la portada de la canción que suena:
+    // recargar paleta en cada cambio de canción (no solo si mood cambió)
+    const coverKey = S.track.cover || "";
+    if (mood !== newMood || coverKey !== _lastCoverKey) {
       mood = newMood;
-      if (mood === "chill") extractCoverPalette(S.track.cover);
+      _lastCoverKey = coverKey;
+      coverPalette = null;                 // paleta vieja inválida
+      if (mood === "chill" && coverKey) extractCoverPalette(coverKey);
     }
     clearChillGradient();
-    if (isChill()) startFluid();
+    if (isChill()) startFluid();           // sin paleta usa fallback de la portada anterior
     $("lineNone").style.display = S.lyrics.length ? "none" : "flex";
     $("lyrics").style.display = S.lyrics.length ? "flex" : "none";
     hideMsg();   // MOSTRAR lyrics + OCULTAR msg AHORA
@@ -681,6 +686,7 @@ let colorPtr = 0;
 // Modo actual: "party" (flashes por beat) o "chill" (gradiente fluido de portada)
 let mood = "party";
 let coverPalette = null;   // [ [r,g,b], ... ] extraída de la portada
+let _lastCoverKey = "";    // URL de la última portada procesada
 
 function isChill() {
   if (eggActive || cfg.mode === "byn") return false;
@@ -719,6 +725,7 @@ function extractCoverPalette(url) {
         });
       if (top.length >= 2) {
         coverPalette = top;
+        _lastCoverKey = url;
         if (isChill()) startFluid();   // refrescar fluido con paleta real
       }
     } catch (e) { coverPalette = null; }   // canvas tainted → paleta null
@@ -737,15 +744,15 @@ function startFluid() {
   const cv = $("fluidCanvas");
   cv.width = innerWidth; cv.height = innerHeight;
   cv.classList.add("on");
-  // crear blobs desde la paleta de ESTA portada
-  let cols = (coverPalette && coverPalette.length ? coverPalette : [[110,60,120],[50,50,90],[220,130,80],[30,140,150],[180,40,90]]);
+  // blobs SOLO con colores de la portada actual (fallback: tonos derivados del primero)
+  let cols = coverPalette;
+  if (!cols || cols.length < 3) return;   // sin paleta aún → el onload relanzará
   cols = cols.map(c => adjustTone(c));
-  const n = cols.length + 1;                       // +1 blob de profundidad
   fluidBlobs = [];
-  for (let i = 0; i < n; i++) {
-    // blob extra = versión aclarada (no oscurecida) para dar luz al centro
-    const col = i < cols.length ? cols[i]
-      : cols[0].map(x => Math.min(255, Math.round(x * 0.75 + 40)));
+  for (let i = 0; i < cols.length; i++) {
+    // alternar entre el color y su versión aclarada para profundidad luminosa
+    const c0 = cols[i];
+    const col = i % 2 === 1 ? c0.map(x => Math.min(255, Math.round(x * 0.8 + 50))) : c0;
     fluidBlobs.push({
       x: Math.random(), y: Math.random(),
       r: 0.28 + Math.random()*0.22,               // radio relativo
