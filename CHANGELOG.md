@@ -208,7 +208,16 @@ schtasks /delete /tn "FIESTA Visualizer"
 
 ## Changelog
 
-### v1.1 "FIX SYNC" — 2026-08-19
+### v1.2 "CHILL" — 2026-08-22
+**Nuevas funcionalidades**:
+- **Modo chill autodetectado**: si el BPM de la canción es < 100 (baladas), la app cambia automáticamente de flashes por beat a un **gradiente fluido con los colores de la portada del álbum** (estilo Apple Music). El color fluye y respira lentamente, sin flashes.
+- Extracción de paleta desde la portada (canvas 24×24, cuantización a 5 colores dominantes).
+- Checkbox en ajustes: «Auto: baladas → modo fluido (portada)» para activar/desactivar.
+- **Icono de app** (`fiesta.ico`) + lanzador `FIESTA.bat` para abrir el visualizador en ventana propia de Chrome.
+
+---
+
+### v1.1 "MASTER" — 2026-08-19
 **Bug fixes**:
 - La letra ahora se actualiza en tiempo real sin F5. El servidor calcula la línea activa en `/api/sync` y el cliente la usa como autoridad.
 - Fix: `fetch_lyrics` recibía el objeto `item` de Spotify en lugar del track formateado `{artist, name, album, duration_ms, id}`. Ahora adapta el formato correctamente.
