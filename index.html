@@ -210,7 +210,13 @@
         <option value="byn">Blanco y negro</option>
       </select></div>
     <div class="chk"><input id="pulseChk" type="checkbox" checked> Pulso blanco en cada beat</div>
-    <div class="chk"><input id="moodChk" type="checkbox" checked> Auto: baladas → modo fluido (portada)</div>
+    <div class="row"><label>Modo visual</label>
+      <select id="moodSel">
+        <option value="auto">Auto (detecta baladas)</option>
+        <option value="party">Fiesta siempre (flashes)</option>
+        <option value="chill">Fluido siempre (portada)</option>
+      </select></div>
+    <div class="chk"><input id="moodChk" type="checkbox" checked> Sugerir chill por palabras clave</div>
 
     <h3>Pantalla CRT</h3>
     <div class="row"><label>Scanlines: <span class="val" id="scanVal">70</span></label>
@@ -262,7 +268,7 @@ const CFG_DEFAULTS = {
   fs: 7, font: "arcade", phrase: 4, upper: false, glow: true,
   timing: "beats", mode: "rgb", pulse: true,
   scan: 70, mask: 60, vig: 70, noise: 50, flicker: true, tilt: true, refresh: true,
-  channel: true, autoMood: true,
+  channel: true, autoMood: true, moodOverride: "auto",
 };
 const cfg = Object.assign({}, CFG_DEFAULTS);
 try { Object.assign(cfg, JSON.parse(localStorage.getItem("fv_cfg") || "{}")); } catch (e) {}
@@ -296,6 +302,7 @@ bindRange("noiseRng", "noise", "noiseVal");
 bindChk("upperChk", "upper"); bindChk("glowChk", "glow"); bindChk("pulseChk", "pulse");
 bindChk("flickChk", "flicker"); bindChk("tiltChk", "tilt"); bindChk("refChk", "refresh");
 bindChk("chanChk", "channel"); bindChk("moodChk", "autoMood");
+bindSel("moodSel", "moodOverride");
 bindSel("fontSel", "font"); bindSel("ctiming", "timing"); bindSel("cmode", "mode");
 $("testChan").onclick = playChannel;
 $("loginBtn").onclick = () => { location.href = S && S.logged_in ? "/logout" : "/login"; };
@@ -555,9 +562,10 @@ function renderState() {
     $("artist").textContent = S.track.artist;
     if (S.track.cover) { $("cover").src = S.track.cover; $("cover").style.visibility = "visible"; }
     else $("cover").style.visibility = "hidden";
-    // Modo chill/party autodetectado por BPM (<100 = balada)
-    const newMood = S.mood || (S.tempo && S.tempo < 100 ? "chill" : "party");
-    if (newMood !== mood) {
+    // Modo visual: override manual del usuario > detección del server
+    const serverMood = S.mood || "party";
+    const newMood = cfg.moodOverride !== "auto" ? cfg.moodOverride : serverMood;
+    if (newMood !== mood || (mood === "chill" && !coverPalette)) {
       mood = newMood;
       if (mood === "chill") extractCoverPalette(S.track.cover);
     }

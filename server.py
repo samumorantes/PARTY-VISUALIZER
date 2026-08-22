@@ -491,6 +491,25 @@ def synth_beats(tempo, duration):
     return [round(i * interval, 3) for i in range(int(duration / interval) + 1)]
 
 
+def detect_mood(track, tempo):
+    """Detecta si la canción es 'chill' (balada → gradiente fluido) o 'party' (flashes por beat).
+
+    Spotify cerró audio-analysis/audio-features para apps nuevas (403), así que el tempo
+    suele ser sintético (120.0). Detección por capas:
+      1) BPM real < 100 (si algún día vuelve el análisis)
+      2) Palabras clave balada/acoustic/chill en título, artista o álbum
+      3) Default: party
+    """
+    if tempo and tempo != 120.0 and tempo < 100:
+        return "chill"
+    import re as _re
+    text = " ".join([track.get("name", ""), track.get("artist", ""), track.get("album", "")])
+    if _re.search(r"\b(balada|baladas|acoustic|acústico|unplugged|ballad|sad|lento|lenta|slow|"
+                  r"chill|lofi|lo-fi|piano|stripped|versi[oó]n ac[uú]stica|solo voz)\b", text, _re.I):
+        return "chill"
+    return "party"
+
+
 def fetch_rhythm(track, token):
     """Ritmo real desde Spotify Audio Analysis:
     beats (pulsos), bars (downbeats/compases) y sections (cambios estructurales = drops)."""
@@ -628,7 +647,7 @@ def build_state(max_words=4):
     out["lyrics"] = enr["lyrics"]
     out["beats"], out["bars"], out["sections"] = enr["beats"], enr["bars"], enr["sections"]
     out["tempo"] = enr["tempo"]
-    out["mood"] = "chill" if enr["tempo"] < 100 else "party"   # baladas → animación fluida
+    out["mood"] = detect_mood(track, enr["tempo"])
     out["cover"] = track.get("cover")
     _player_cache["data"] = out
     _player_cache["at"] = time.time()
