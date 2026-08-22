@@ -71,6 +71,18 @@
 
   #gear{position:absolute;top:10px;right:12px;width:40px;height:40px;border-radius:2px;border:none;background:rgba(0,0,0,.38);color:#fff;font-size:19px;cursor:pointer;z-index:10}
 
+  /* ====== SELECTOR RÁPIDO FIESTA/FLUIDO (bajo el engrane) ====== */
+  #moodSwitch{position:absolute;top:60px;right:14px;z-index:10;display:flex;align-items:center;
+    padding:4px;border-radius:16px;background:rgba(0,0,0,.30);
+    -webkit-backdrop-filter:blur(16px) saturate(160%);backdrop-filter:blur(16px) saturate(160%);
+    border:1px solid rgba(255,255,255,.16);box-shadow:0 4px 18px rgba(0,0,0,.3)}
+  #moodSwitch button{width:40px;height:34px;border:none;border-radius:12px;background:transparent;
+    font-size:17px;cursor:pointer;opacity:.55;transition:opacity .25s, background .25s, transform .25s}
+  #moodSwitch button:hover{opacity:.9}
+  #moodSwitch button.active{opacity:1;background:rgba(255,255,255,.22);transform:scale(1.08)}
+  body.ui-hidden #moodSwitch{opacity:0;pointer-events:none}
+  #moodSwitch{transition:opacity .8s ease}
+
   /* ====== PANEL DE AJUSTES — LIQUID GLASS ====== */
   #panel{position:absolute;top:58px;right:12px;width:312px;max-height:82vh;overflow-y:auto;
     color:#fff;border-radius:20px;padding:16px 18px;z-index:10;display:none;
@@ -201,6 +213,13 @@
   <button id="gear" title="Ajustes">⚙</button>
   <div id="badge">DEMO</div>
 
+  <!-- Selector rápido de modo: flotante bajo el engrane -->
+  <div id="moodSwitch" title="Cambiar entre fiesta y fluido">
+    <button id="moodParty" title="Fiesta: flashes al beat">🎉</button>
+    <div id="moodKnob"></div>
+    <button id="moodChill" title="Fluido: colores de la portada">🌊</button>
+  </div>
+
   <div id="panel">
     <h3>Letra</h3>
     <div class="row"><label>Tamaño: <span class="val" id="fsVal">7</span></label>
@@ -330,6 +349,24 @@ $("loginBtn").onclick = () => { location.href = S && S.logged_in ? "/logout" : "
 $("logoutBtn").onclick = () => { location.href = "/logout"; };
 $("bigLogin").onclick = () => { location.href = "/login"; };
 
+/* ---------- selector rápido fiesta/fluido ---------- */
+function updateMoodSwitch() {
+  const eff = cfg.moodOverride !== "auto" ? cfg.moodOverride : (mood === "chill" ? "chill" : "auto");
+  $("moodParty").classList.toggle("active", cfg.moodOverride === "party");
+  $("moodChill").classList.toggle("active", cfg.moodOverride === "chill");
+  // en auto: iluminar suave ambos (el sistema decide por canción)
+  if (cfg.moodOverride === "auto") {
+    $("moodParty").style.opacity = mood === "chill" ? ".4" : ".9";
+    $("moodChill").style.opacity = mood === "chill" ? ".9" : ".4";
+    $("moodParty").classList.remove("active");
+    $("moodChill").classList.remove("active");
+    if (mood === "chill") $("moodChill").classList.add("active");
+    else $("moodParty").classList.add("active");
+  }
+}
+$("moodParty").onclick = () => { cfg.moodOverride = "party"; save(); applyCfg(); };
+$("moodChill").onclick = () => { cfg.moodOverride = "chill"; save(); applyCfg(); };
+
 function save() { localStorage.setItem("fv_cfg", JSON.stringify(cfg)); }
 function applyCfg() {
   const r = document.documentElement.style;
@@ -354,6 +391,7 @@ function applyCfg() {
     clearChillGradient();
     if (isChill()) startFluid();
   }
+  updateMoodSwitch();
 }
 
 /* ---------- 🐰 easter egg EOO (Bad Bunny): letra real con efectos especiales ---------- */
