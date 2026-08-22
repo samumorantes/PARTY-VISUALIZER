@@ -131,12 +131,9 @@
   #queueText{font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;opacity:.95}
 
   /* ====== OJO DE PEZ: deformación ESTÁTICA de esfera ======
-     El texto se proyecta sobre una esfera: los caracteres centrales son
-     más GRANDES (están "frente a ti") y los laterales más pequeños y
-     ligeramente rotados (se alejan por la curvatura). Sin animación. */
-  body.fisheye #lyrics .line.main{
-    transform:scaleX(1.04) scaleY(1.05);
-    text-shadow:0 0 3vmin rgba(255,255,255,.22), 0 4px 14px rgba(0,0,0,.55)}
+     Se aplica POR CARÁCTER en JS (applyFisheye): los spans centrales son
+     grandes y los laterales pequeños/rotados. Aquí solo refuerzos globales. */
+  body.fisheye #lyrics{perspective:900px}
   body.fisheye #lyrics .line.back{
     transform:scale(.94);filter:blur(.4px);opacity:.36}
   /* ====== LETRA ====== */
@@ -603,6 +600,14 @@ function applyFisheye(el, text) {
     const lift = -t * t * 9;                      // curva vertical notoria
     const rotY = t * -14;                         // bordes giran hacia dentro
     span.style.display = "inline-block";
+    span.style.marginLeft = "0.05em";
+    span.style.marginRight = "0.05em";
+    if (ch === " ") {
+      // espacio entre palabras: ancho fijo proporcional a la fuente
+      span.style.width = "0.5em";
+      span.style.marginLeft = "0";
+      span.style.marginRight = "0";
+    }
     span.style.transform =
       `scale(${scale.toFixed(3)}) translateY(${lift.toFixed(1)}%) rotateY(${rotY.toFixed(1)}deg)`;
     frag.appendChild(span);
@@ -611,7 +616,7 @@ function applyFisheye(el, text) {
 }
 
 function setLyric(text, back) {
-  $("lCur").style.whiteSpace = "normal";
+  $("lCur").style.whiteSpace = "pre-wrap";   // conservar espacios entre spans
   $("lCur").style.lineHeight = "";
   $("lCur").style.fontSize = cfg.fs + "vw";
   if (!eggActive) { $("lCur").style.color = ""; }   // restaurar contraste dinámico
@@ -808,8 +813,10 @@ function frame() {
         if (eggActive) exitEgg();
         applyEggFont();
         setLyric(title, S.track.artist || null);
+        // el título usa SIEMPRE fisheye aunque la letra venga del server:
+        // marcar lastShown evita que S.lyric lo pise en el mismo frame
       }
-    } else if (S.lyric && S.lyric.text !== undefined) {
+    } else if (S.lyric && S.lyric.text !== undefined && S.lyric.text !== lastShown) {
       const sl = S.lyric;
       if (sl.text !== lastShown) {
         lastShown = sl.text;
