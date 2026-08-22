@@ -213,7 +213,7 @@ schtasks /delete /tn "FIESTA Visualizer"
 - **Modo chill autodetectado**: si el BPM de la canción es < 100 (baladas), la app cambia automáticamente de flashes por beat a un **gradiente fluido con los colores de la portada del álbum** (estilo Apple Music). El color fluye y respira lentamente, sin flashes.
 - Extracción de paleta desde la portada (canvas 24×24, cuantización a 5 colores dominantes).
 - Checkbox en ajustes: «Auto: baladas → modo fluido (portada)» para activar/desactivar.
-- **Icono de app** (`fiesta.ico`) + lanzador `FIESTA.bat` para abrir el visualizador en ventana propia de Chrome.
+- **Icono de app** (`fiesta.ico`) + `fiesta_launcher.py` (Python puro, sin .bat — los .bat disparan el SmartScreen de Windows) para abrir el visualizador en ventana propia de Chrome.
 
 ---
 
