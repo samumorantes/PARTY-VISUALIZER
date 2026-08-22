@@ -308,7 +308,7 @@ function applyCfg() {
 }
 
 /* ---------- 🐰 easter egg EOO (Bad Bunny): letra real con efectos especiales ---------- */
-let eggActive = false, eggWordTimer = null, eggWordIdx = 0;
+let eggActive = false;
 
 function isEggBlock(text) {
   // Chequéate la historia → bloque del easter egg
@@ -319,66 +319,60 @@ function isEooText(text) {
   return /\bEOOO?\b/i.test(text || "");
 }
 function isEggText(text) {
-  // Perreo / Tra-tra → una palabra a la vez, Impact, blanco sobre negro, sin CRT
+  // Perreo / Tra-tra → efectos especiales (Impact + flip B/N), letra intacta
   return /Perreo|Tra-tra/i.test(text || "");
+}
+function isEggLine(text) {
+  // Cualquier línea que dispara el easter egg de efectos
+  return isEooText(text) || isEggText(text) || isEggBlock(text);
 }
 
 function enterEgg() {
   if (eggActive) return;
   eggActive = true;
-  // QUITA TODO el CRT — negro puro
+  // Easter egg = SOLO EFECTOS: fondo negro, letra blanca, sin CRT
   $("screen").style.background = "#000";
   $("crt").style.display = "none";
   $("noise").style.display = "none";
   $("refresh").style.display = "none";
+  eggFlip(false);
 }
 
 function exitEgg() {
   if (!eggActive) return;
   eggActive = false;
-  if (eggWordTimer) { clearInterval(eggWordTimer); eggWordTimer = null; }
+  if (eggFlipTimer) { clearInterval(eggFlipTimer); eggFlipTimer = null; }
   if (_growingTimer) { clearInterval(_growingTimer); _growingTimer = null; }
-  // RESTAURA CRT
+  // RESTAURA CRT + contraste dinámico normal
   $("screen").style.background = "";
   $("crt").style.display = "";
   $("noise").style.display = "";
   $("refresh").style.display = "";
+  $("lCur").style.color = "";
 }
 
-function startWordCycle(text) {
-  if (eggWordTimer) { clearInterval(eggWordTimer); eggWordTimer = null; }
-  eggWordIdx = 0;
-  const words = text.split(/\s+/).filter(w => w.length > 0);
-  if (!words.length) return;
-  const el = $("lCur");
-  el.style.whiteSpace = "nowrap";
-  el.style.color = "#fff";          // BLANCO PURO
-  el.style.background = "none";     // sin fondo
-  el.style.webkitBackgroundClip = "text";
-  el.style.backgroundClip = "text";
-  el.textContent = words[0];
-  el.style.fontSize = "18vw";       // MUY GRANDE
-  eggWordIdx = 1;
-  eggWordTimer = setInterval(() => {
-    el.textContent = words[eggWordIdx % words.length];
-    eggWordIdx++;
-  }, 350);
-}
-
-function stopWordCycle() {
-  if (eggWordTimer) { clearInterval(eggWordTimer); eggWordTimer = null; }
-  eggWordIdx = 0;
+// Flip blanco↔negro puro (sin grises): invierte fondo y letra cada 900ms
+let eggFlipTimer = null;
+function eggFlip(start) {
+  if (eggFlipTimer) { clearInterval(eggFlipTimer); eggFlipTimer = null; }
+  if (!start) return;
+  let white = false;
+  const apply = () => {
+    // blanco: fondo negro/letra blanca · negro: fondo blanco/letra negra
+    $("screen").style.background = white ? "#fff" : "#000";
+    $("lCur").style.color = white ? "#000" : "#fff";
+    white = !white;
+  };
+  apply();
+  eggFlipTimer = setInterval(apply, 900);
 }
 
 let _growingTimer = null;
 function startGrowingE() {
-  // E → EO → EOO → EOOO… hasta que se salga de la pantalla
-  if (_growingTimer) { clearInterval(_growingTimer); _growingTimer = null; }
+  // E → EO → EOO → EOOO… hasta que se salga de la pantalla (letra real intacta)
+  stopGrowingE();
+  eggFlip(true);   // flip blanco↔negro activo
   const el = $("lCur");
-  el.style.color = "#fff";
-  el.style.background = "none";
-  el.style.webkitBackgroundClip = "text";
-  el.style.backgroundClip = "text";
   el.textContent = "E";
   let oCount = 0;
   _growingTimer = setInterval(() => {
@@ -530,15 +524,13 @@ function renderState() {
     if (lineIdx >= 0 && lineIdx < L0.length) {
       lastShown = L0[lineIdx].text;
       const wasEoo = eggActive;
-      const nowEoo = isEooText(lastShown);
-      const nowEgg = isEggText(lastShown);
-      eggActive = nowEoo || nowEgg;
+      const nowEgg = isEggLine(lastShown);
+      eggActive = nowEgg;
       if (eggActive && !wasEoo) enterEgg();
       else if (!eggActive && wasEoo) exitEgg();
       applyEggFont();
-      if (nowEoo) { setLyric("E", null); startGrowingE(); }
-      else if (nowEgg) startWordCycle(lastShown);
-      else setLyric(lastShown, L0[lineIdx].back);
+      setLyric(lastShown, L0[lineIdx].back);
+      if (nowEgg && isEooText(lastShown)) startGrowingE();
     } else {
       setLyric("...", null);
     }
@@ -572,23 +564,30 @@ function frame() {
   if (S && curTrack) {
     const t = nowPos();
     const L = S.lyrics || [];
-    // Autoridad: si el server nos dijo la línea activa, usarla directamente
-    // (esto es lo que hace que la letra cambie cuando adelantás/atrasás en Spotify)
-    if (S.lyric && S.lyric.text !== undefined) {
+    // PRIMEROS 4 SEGUNDOS: mostrar el título de la canción (intro para el público)
+    if (t < 4.0 && S.track) {
+      const title = "♪ " + S.track.name + " ♪";
+      if (lastShown !== title) {
+        lastShown = title;
+        stopGrowingE();
+        if (eggActive) exitEgg();
+        applyEggFont();
+        setLyric(title, S.track.artist || null);
+      }
+    } else if (S.lyric && S.lyric.text !== undefined) {
       const sl = S.lyric;
       if (sl.text !== lastShown) {
         lastShown = sl.text;
         lineIdx = sl.idx || 0;
-        const wasEoo = eggActive;
-        const nowEoo = isEooText(lastShown);
-        const nowEgg = isEggText(lastShown);
-        eggActive = nowEoo || nowEgg;
-        if (eggActive && !wasEoo) enterEgg();
-        else if (!eggActive && wasEoo) exitEgg();
+        const wasEgg = eggActive;
+        const nowEgg = isEggLine(lastShown);
+        eggActive = nowEgg;
+        if (eggActive && !wasEgg) enterEgg();
+        else if (!eggActive && wasEgg) exitEgg();
         applyEggFont();
-        if (nowEoo) { stopWordCycle(); setLyric("E", null); startGrowingE(); }
-        else if (nowEgg) { stopGrowingE(); startWordCycle(lastShown); }
-        else { stopWordCycle(); stopGrowingE(); setLyric(lastShown, sl.back); }
+        setLyric(lastShown, sl.back);
+        stopGrowingE();
+        if (nowEgg && isEooText(lastShown)) startGrowingE();
       }
     } else {
       // Si la posición retrocedió mucho (seek/adelantar-atrasar), resetear el puntero
@@ -602,25 +601,15 @@ function frame() {
       }
       if (lineIdx >= 0 && lineIdx < L.length && L[lineIdx].text !== lastShown) {
         lastShown = L[lineIdx].text;
-        const wasEoo = eggActive;
-        const nowEoo = isEooText(lastShown);
-        const nowEgg = isEggText(lastShown);
-        eggActive = nowEoo || nowEgg;
-        if (eggActive && !wasEoo) enterEgg();
-        else if (!eggActive && wasEoo) exitEgg();
+        const wasEgg = eggActive;
+        const nowEgg = isEggLine(lastShown);
+        eggActive = nowEgg;
+        if (eggActive && !wasEgg) enterEgg();
+        else if (!eggActive && wasEgg) exitEgg();
         applyEggFont();
-        if (nowEoo) {
-          stopWordCycle();
-          setLyric("E", null);    // E sola, sin back
-          startGrowingE();
-        } else if (nowEgg) {
-          stopGrowingE();
-          startWordCycle(lastShown);
-        } else {
-          stopWordCycle();
-          stopGrowingE();
-          setLyric(lastShown, L[lineIdx].back);  // letra normal + back opcional
-        }
+        setLyric(lastShown, L[lineIdx].back);  // letra real + back opcional
+        stopGrowingE();
+        if (nowEgg && isEooText(lastShown)) startGrowingE();
       }
     }
     if (S.track.duration_ms) {

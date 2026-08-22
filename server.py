@@ -392,12 +392,14 @@ def fetch_lyrics(track, token=None):
     2) LRCLIB exacto
     3) LRCLIB búsqueda
     4) lyrics.ovh (sin sync)
+    5) Respaldo sintético con el título — NUNCA devuelve vacío.
 
     Tras obtenerlas: si NO hay paréntesis, detectar voces alternadas
     (Perreo/Tra-tra/Mami/baby/ey...) y crear `back` automáticamente."""
     dur = round(track["duration_ms"] / 1000) if track.get("duration_ms") else None
 
     # 1) Spotify interno primero — usa paréntesis reales para los backs
+    spotify_no_backs = None
     if token:
         found = fetch_lyrics_spotify(track, token)
         if found:
@@ -425,13 +427,12 @@ def fetch_lyrics(track, token=None):
         {"track_name": track["name"], "artist_name": track["artist"]}))
     if st == 200 and isinstance(data, list) and data:
         # Primero intentar las versiones CON paréntesis
-        import re as _re
         for x in data:
             synced = x.get("syncedLyrics") or ""
             if not synced:
                 continue
             # Solo versiones que tengan paréntesis con texto (backs reales)
-            if _re.search(r"\([^)\d][^)]*\)", synced):
+            if re.search(r"\([^\d)][^)]*\)", synced):
                 lines = parse_lrc(synced)
                 if _has_backs(lines):
                     return lines
@@ -451,16 +452,29 @@ def fetch_lyrics(track, token=None):
             if _has_backs(merged):
                 return merged
 
-    # 4) Si Spotify interno tenía líneas (sin backs) y LRCLIB nada mejor, devolverlo
-    # combinado con detección de voces alternadas
-    if token and 'spotify_no_backs' in dir():
+    # 4) Spotify interno sin backs + detección de voces alternadas
+    if spotify_no_backs:
         merged = _merge_alternating_voices(spotify_no_backs)
         if _has_backs(merged):
             return merged
         return spotify_no_backs
 
-    # 5) lyrics.ovh — última instancia
-    return fetch_lyrics_plain(track) or _merge_alternating_voices([])
+    # 5) lyrics.ovh y, como último recurso, letra sintética (nunca vacío)
+    plain = fetch_lyrics_plain(track)
+    if plain:
+        merged = _merge_alternating_voices(plain)
+        return merged if _has_backs(merged) else plain
+    return _fallback_lines(track)
+
+
+def _fallback_lines(track):
+    """Última instancia: línea mínima con el título para que JAMÁS diga NO LYRICS."""
+    name = (track.get("name") or "♪").strip()
+    artist = (track.get("artist") or "").strip()
+    out = [{"t": 4.0, "text": "♪ %s ♪" % name}]
+    if artist:
+        out.append({"t": 12.0, "text": artist})
+    return out
 
 
 def _has_backs(lines):
