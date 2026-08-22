@@ -491,21 +491,44 @@ def synth_beats(tempo, duration):
     return [round(i * interval, 3) for i in range(int(duration / interval) + 1)]
 
 
-def detect_mood(track, tempo):
-    """Detecta si la canción es 'chill' (balada → gradiente fluido) o 'party' (flashes por beat).
+def lyric_energy(lyrics):
+    """Densidad de sílabas por segundo de la letra sincronizada.
+    Proxy de energía SIN audio real (Spotify cerró audio-analysis):
+    reggaetón/perreo ≈ 3.5-4.5 syl/s, baladas ≈ 1.2-1.6 syl/s. Umbral: 2.5."""
+    if not lyrics or len(lyrics) < 5:
+        return None
+    syl_total = 0
+    dur_total = 0
+    for i, ln in enumerate(lyrics[:-1]):
+        gap = lyrics[i + 1]["t"] - ln["t"]
+        if gap <= 0 or gap > 15:
+            continue
+        text = (ln.get("text") or "") + " " + (ln.get("back") or "")
+        syls = len(re.findall(r"[aeiouáéíóúü]+", text.lower()))
+        syl_total += syls
+        dur_total += gap
+    if dur_total < 30:
+        return None
+    return syl_total / dur_total
 
-    Spotify cerró audio-analysis/audio-features para apps nuevas (403), así que el tempo
-    suele ser sintético (120.0). Detección por capas:
+
+def detect_mood(track, tempo, lyrics=None):
+    """Detecta si la canción es 'chill' (balada → fluido portada) o 'party' (flashes por beat).
+
+    Capas de detección (Spotify cerró audio-analysis, 403 desde nov 2024):
       1) BPM real < 100 (si algún día vuelve el análisis)
-      2) Palabras clave balada/acoustic/chill en título, artista o álbum
-      3) Default: party
+      2) Energía de la letra: sílabas/segundo < 2.5 → balada
+      3) Palabras clave balada/acoustic/chill en título, artista o álbum
+      4) Default: party
     """
     if tempo and tempo != 120.0 and tempo < 100:
         return "chill"
-    import re as _re
+    energy = lyric_energy(lyrics or [])
+    if energy is not None and energy < 2.5:
+        return "chill"
     text = " ".join([track.get("name", ""), track.get("artist", ""), track.get("album", "")])
-    if _re.search(r"\b(balada|baladas|acoustic|acústico|unplugged|ballad|sad|lento|lenta|slow|"
-                  r"chill|lofi|lo-fi|piano|stripped|versi[oó]n ac[uú]stica|solo voz)\b", text, _re.I):
+    if re.search(r"\b(balada|baladas|acoustic|acústico|unplugged|ballad|sad|lento|lenta|slow|"
+                 r"chill|lofi|lo-fi|piano|stripped|versi[oó]n ac[uú]stica|solo voz)\b", text, re.I):
         return "chill"
     return "party"
 
@@ -647,7 +670,9 @@ def build_state(max_words=4):
     out["lyrics"] = enr["lyrics"]
     out["beats"], out["bars"], out["sections"] = enr["beats"], enr["bars"], enr["sections"]
     out["tempo"] = enr["tempo"]
-    out["mood"] = detect_mood(track, enr["tempo"])
+    # mood con letra SIN dividir (energía real), no las frases recortadas del enrich
+    raw_lyrics = fetch_lyrics(track, token)
+    out["mood"] = detect_mood(track, enr["tempo"], raw_lyrics)
     out["cover"] = track.get("cover")
     _player_cache["data"] = out
     _player_cache["at"] = time.time()
