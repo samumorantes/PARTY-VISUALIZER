@@ -400,6 +400,7 @@ function setLyric(text, back) {
   $("lCur").style.whiteSpace = "normal";
   $("lCur").style.lineHeight = "";
   $("lCur").style.fontSize = cfg.fs + "vw";
+  if (!eggActive) { $("lCur").style.color = ""; }   // restaurar contraste dinámico
   // SUBTÍTULO: backs/paréntesis como línea secundaria opaca
   const backEl = $("lBack");
   if (back) {
@@ -667,17 +668,28 @@ function newColor() {
 }
 
 function setContrast(css) {
-  const m = css.match(/\d+/g);
+  // Luminancia relativa real (WCAG): texto negro sobre colores claros
+  const m = css && css.match(/(\d+(?:\.\d+)?)/g);
   let lum = 0.5;
-  if (m && m.length >= 3) lum = (m[0] * 299 + m[1] * 587 + m[2] * 114) / 255000;
-  const tc = lum > 0.55 ? "#101018" : "#ffffff";
+  if (m && m.length >= 3) {
+    const lin = c => { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
+    lum = 0.2126 * lin(+m[0]) + 0.7152 * lin(+m[1]) + 0.0722 * lin(+m[2]);
+  }
+  const tc = lum > 0.36 ? "#101018" : "#ffffff";
   document.documentElement.style.setProperty("--tc", tc);
 }
 
 function onColor() {
   const c = newColor();
   $("bg").style.backgroundColor = c;
-  setContrast(c);
+  setContrast(c.startsWith("#") ? hexToRgb(c) : c);
+}
+
+function hexToRgb(h) {
+  h = h.replace("#", "");
+  if (h.length === 3) h = h.split("").map(x => x + x).join("");
+  const n = parseInt(h, 16);
+  return "rgb(" + ((n >> 16) & 255) + "," + ((n >> 8) & 255) + "," + (n & 255) + ")";
 }
 
 function pulse() {
@@ -701,7 +713,10 @@ function playChannel() {
   void ch.offsetWidth;
   ch.classList.add("on");
   clearTimeout(playChannel._t);
-  playChannel._t = setTimeout(() => { ch.classList.remove("on"); ch.style.background = ""; }, 520);
+  playChannel._t1 && clearTimeout(playChannel._t1);
+  // fase 2: estática tras las barras (efecto completo de sintonía)
+  playChannel._t1 = setTimeout(() => { ch.style.background = ""; }, 300);
+  playChannel._t = setTimeout(() => { ch.classList.remove("on"); }, 700);
 }
 
 /* ---------- arranque ---------- */
