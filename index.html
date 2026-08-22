@@ -740,10 +740,12 @@ function startFluid() {
   // crear blobs desde la paleta de ESTA portada
   let cols = (coverPalette && coverPalette.length ? coverPalette : [[110,60,120],[50,50,90],[220,130,80],[30,140,150],[180,40,90]]);
   cols = cols.map(c => adjustTone(c));
-  const n = cols.length + 1;                       // +1 blob oscuro de fondo
+  const n = cols.length + 1;                       // +1 blob de profundidad
   fluidBlobs = [];
   for (let i = 0; i < n; i++) {
-    const col = i < cols.length ? cols[i] : [cols[0][0]*0.4|0, cols[0][1]*0.4|0, cols[0][2]*0.55|0];
+    // blob extra = versión aclarada (no oscurecida) para dar luz al centro
+    const col = i < cols.length ? cols[i]
+      : cols[0].map(x => Math.min(255, Math.round(x * 0.75 + 40)));
     fluidBlobs.push({
       x: Math.random(), y: Math.random(),
       r: 0.28 + Math.random()*0.22,               // radio relativo
@@ -763,9 +765,10 @@ function stopFluid() {
 }
 
 function adjustTone(c) {
+  // solo clamp extremos: mantener colores vivos y brillantes
   const lum = (c[0]*299 + c[1]*587 + c[2]*114) / 255000;
-  if (lum > 0.72) return c.map(x => Math.round(x * 0.55));
-  if (lum < 0.08) return c.map(x => Math.min(255, Math.round(x * 2.2 + 20)));
+  if (lum > 0.82) return c.map(x => Math.round(x * 0.8));
+  if (lum < 0.06) return c.map(x => Math.min(255, Math.round(x * 2.6 + 30)));
   return c;
 }
 
@@ -788,9 +791,9 @@ function fluidLoop() {
   const boost = fluidEnergy * 0.22 + breathe;
 
   ctx.clearRect(0, 0, W, H);
-  // fondo: primer color oscurecido (mezcla profunda)
-  const base = fluidBlobs.length ? fluidBlobs[fluidBlobs.length-1].color : "20,20,30";
-  ctx.fillStyle = "rgb(" + base + ")";
+  // fondo: tono medio de la paleta (no negro) para que se vea vivo
+  const mid = fluidBlobs.length ? fluidBlobs[0].color : "90,60,110";
+  ctx.fillStyle = "rgb(" + mid + ")";
   ctx.fillRect(0, 0, W, H);
   ctx.globalCompositeOperation = "lighter";       // mezcla aditiva = fluido luminoso
 
@@ -806,8 +809,8 @@ function fluidLoop() {
                 Math.max(W,H) * 0.75;
     const cx = b.x*W, cy = b.y*H;
     const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(10, rpx));
-    g.addColorStop(0, `rgba(${b.color},0.55)`);
-    g.addColorStop(0.55, `rgba(${b.color},0.18)`);
+    g.addColorStop(0, `rgba(${b.color},0.75)`);   // centro más sólido y brillante
+    g.addColorStop(0.55, `rgba(${b.color},0.35)`);
     g.addColorStop(1, `rgba(${b.color},0)`);
     ctx.fillStyle = g;
     ctx.beginPath();
