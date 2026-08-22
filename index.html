@@ -325,6 +325,14 @@ function applyCfg() {
   ly.classList.toggle("no-glow", !cfg.glow);
   ly.classList.toggle("upper", cfg.upper);
   applyEggFont();
+  // Aplicar el modo visual inmediatamente al cambiar el selector
+  if (S && S.track) {
+    const serverMood = S.mood || "party";
+    mood = cfg.moodOverride !== "auto" ? cfg.moodOverride : serverMood;
+    if (mood === "chill" && !coverPalette) extractCoverPalette(S.track.cover);
+    clearChillGradient();
+    if (isChill()) applyChillGradient();
+  }
 }
 
 /* ---------- 🐰 easter egg EOO (Bad Bunny): letra real con efectos especiales ---------- */
@@ -677,7 +685,11 @@ let colorPtr = 0;
 let mood = "party";
 let coverPalette = null;   // [ [r,g,b], ... ] extraída de la portada
 
-function isChill() { return cfg.autoMood && mood === "chill" && !eggActive && cfg.mode !== "byn"; }
+function isChill() {
+  if (eggActive || cfg.mode === "byn") return false;
+  if (cfg.moodOverride !== "auto") return cfg.moodOverride === "chill";
+  return cfg.autoMood && mood === "chill";
+}
 
 /* Extrae los colores dominantes de la portada del álbum (mini-canvas, sin CORS) */
 function extractCoverPalette(url) {
