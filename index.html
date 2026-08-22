@@ -780,7 +780,13 @@ function adjustTone(c) {
 }
 
 function fluidPulse() {          // llamado en cada beat del frame()
-  fluidEnergy = Math.min(1.6, fluidEnergy + 0.85);
+  fluidEnergy = Math.min(2.0, fluidEnergy + 1.1);
+  // en cada beat, un blob aleatorio rota hacia OTRO color de la paleta (variedad)
+  if (fluidBlobs.length && coverPalette && coverPalette.length > 1) {
+    const b = fluidBlobs[Math.floor(Math.random() * fluidBlobs.length)];
+    const pick = coverPalette[Math.floor(Math.random() * coverPalette.length)];
+    b.color = adjustTone(pick).join(",");
+  }
 }
 
 function fluidLoop() {
@@ -792,17 +798,22 @@ function fluidLoop() {
   const dt = 1/60;
 
   // energía decae suavemente → pulso tras cada beat
-  fluidEnergy *= 0.965;
+  fluidEnergy *= 0.955;
   const tempo = S.tempo || 120;
   const breathe = 0.06 * Math.sin(performance.now()/1000 * (tempo/60) * Math.PI);   // respiración al BPM
-  const boost = fluidEnergy * 0.22 + breathe;
+  const boost = fluidEnergy * 0.30 + breathe;
 
+  // fondo: mezcla viva de 2 colores de la paleta (diagonal), NUNCA gris plano
   ctx.clearRect(0, 0, W, H);
-  // fondo: tono medio de la paleta (no negro) para que se vea vivo
-  const mid = fluidBlobs.length ? fluidBlobs[0].color : "90,60,110";
-  ctx.fillStyle = "rgb(" + mid + ")";
+  const P = (coverPalette || [[90,60,140],[160,80,120]]).map(c => adjustTone(c));
+  const bg = ctx.createLinearGradient(0, 0, W, H);
+  bg.addColorStop(0, `rgb(${P[0]})`);
+  bg.addColorStop(1, `rgb(${P[P.length-1]})`);
+  ctx.fillStyle = bg;
   ctx.fillRect(0, 0, W, H);
-  ctx.globalCompositeOperation = "lighter";       // mezcla aditiva = fluido luminoso
+
+  // blobs: mezcla "screen" = siempre aclara, jamás ensucia a gris
+  ctx.globalCompositeOperation = "screen";
 
   for (const b of fluidBlobs) {
     // deriva lenta + rebote en bordes
@@ -812,12 +823,12 @@ function fluidLoop() {
     b.x = Math.max(-0.15, Math.min(1.15, b.x));
     b.y = Math.max(-0.15, Math.min(1.15, b.y));
     // respiración: radio oscila con el BPM + golpe en cada beat
-    const rpx = (b.r + boost*0.35 + 0.08*Math.sin(b.ph + performance.now()/1000*b.spd)) *
-                Math.max(W,H) * 0.75;
+    const rpx = (b.r + boost*0.4 + 0.08*Math.sin(b.ph + performance.now()/1000*b.spd)) *
+                Math.max(W,H) * 0.8;
     const cx = b.x*W, cy = b.y*H;
     const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, Math.max(10, rpx));
-    g.addColorStop(0, `rgba(${b.color},0.75)`);   // centro más sólido y brillante
-    g.addColorStop(0.55, `rgba(${b.color},0.35)`);
+    g.addColorStop(0, `rgba(${b.color},0.9)`);    // núcleo saturado
+    g.addColorStop(0.5, `rgba(${b.color},0.45)`);
     g.addColorStop(1, `rgba(${b.color},0)`);
     ctx.fillStyle = g;
     ctx.beginPath();
@@ -825,6 +836,11 @@ function fluidLoop() {
     ctx.fill();
   }
   ctx.globalCompositeOperation = "source-over";
+  // contraste del texto medido sobre el canvas real (throttle: cada 15 frames)
+  if (!fluidLoop._fc || performance.now() - fluidLoop._fc > 250) {
+    fluidLoop._fc = performance.now();
+    setFluidContrast();
+  }
 }
 
 /* Volver al modo fiesta */
@@ -851,6 +867,26 @@ function setContrast(css) {
   }
   const tc = lum > 0.36 ? "#101018" : "#ffffff";
   document.documentElement.style.setProperty("--tc", tc);
+}
+
+/* Contraste del fluido: medir el brillo REAL del canvas y elegir texto que
+   nunca sea invisible (ni negro sobre negro ni blanco sobre blanco). */
+function setFluidContrast() {
+  const cv = $("fluidCanvas");
+  if (!cv.width) return;
+  const ctx = cv.getContext("2d");
+  // muestrear la franja central donde va la letra (cada ~40px)
+  try {
+    const strip = ctx.getImageData(0, cv.height*0.35, cv.width, cv.height*0.3).data;
+    let sum = 0, n = 0;
+    for (let i = 0; i < strip.length; i += 4*40) {
+      sum += 0.2126*strip[i] + 0.7152*strip[i+1] + 0.0722*strip[i+2];
+      n++;
+    }
+    const avgLum = sum / Math.max(1, n) / 255;
+    // umbral amplio: si la zona central es clara → texto oscuro; oscura → blanco
+    document.documentElement.style.setProperty("--tc", avgLum > 0.45 ? "#101018" : "#ffffff");
+  } catch (e) { /* canvas tainted: mantener contraste actual */ }
 }
 
 function onColor() {
