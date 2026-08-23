@@ -829,19 +829,25 @@ function frame() {
         // marcar lastShown evita que S.lyric lo pise en el mismo frame
       }
     } else if (S.lyric && S.lyric.text !== undefined && S.lyric.text !== lastShown) {
-      const sl = S.lyric;
-      if (sl.text !== lastShown) {
-        lastShown = sl.text;
-        lineIdx = sl.idx || 0;
-        const wasEgg = eggActive;
-        const nowEgg = isEggLine(lastShown);
-        eggActive = nowEgg;
-        if (eggActive && !wasEgg) enterEgg();
-        else if (!eggActive && wasEgg) exitEgg();
-        applyEggFont();
-        setLyric(lastShown, sl.back);
-        stopGrowingE();
-        if (nowEgg && isEooText(lastShown)) startGrowingE();
+      // Server = autoridad. Freno anti-flip: mínimo 400ms entre cambios para que
+      // una oscilación de progreso en el borde de dos líneas nunca alterne rápido.
+      const nowMs = performance.now();
+      if (!setLyric._last || nowMs - setLyric._last > 400) {
+        setLyric._last = nowMs;
+        const sl = S.lyric;
+        if (sl.text !== lastShown) {
+          lastShown = sl.text;
+          lineIdx = sl.idx || 0;
+          const wasEgg = eggActive;
+          const nowEgg = isEggLine(lastShown);
+          eggActive = nowEgg;
+          if (eggActive && !wasEgg) enterEgg();
+          else if (!eggActive && wasEgg) exitEgg();
+          applyEggFont();
+          setLyric(lastShown, sl.back);
+          stopGrowingE();
+          if (nowEgg && isEooText(lastShown)) startGrowingE();
+        }
       }
     } else {
       // Si la posición retrocedió mucho (seek/adelantar-atrasar), resetear el puntero
@@ -853,17 +859,26 @@ function frame() {
         const err = t - L[lineIdx].t;
         if (Math.abs(err) < 0.8) pos -= err * 0.6;
       }
-      if (lineIdx >= 0 && lineIdx < L.length && L[lineIdx].text !== lastShown) {
-        lastShown = L[lineIdx].text;
-        const wasEgg = eggActive;
-        const nowEgg = isEggLine(lastShown);
-        eggActive = nowEgg;
-        if (eggActive && !wasEgg) enterEgg();
-        else if (!eggActive && wasEgg) exitEgg();
-        applyEggFont();
-        setLyric(lastShown, L[lineIdx].back);  // letra real + back opcional
-        stopGrowingE();
-        if (nowEgg && isEooText(lastShown)) startGrowingE();
+      // FALLBACK LOCAL: solo pinta si el server NO manda línea (sin conexión).
+      // Si el server tiene letra, él es la ÚNICA autoridad — dos fuentes
+      // disputando provocaban el parpadeo actual/siguiente.
+      const serverHasLyric = S.lyric && S.lyric.text !== undefined;
+      if (!serverHasLyric && lineIdx >= 0 && lineIdx < L.length && L[lineIdx].text !== lastShown) {
+        // freno anti-flip: mínimo 400ms entre cambios de letra
+        const nowMs = performance.now();
+        if (!setLyric._last || nowMs - setLyric._last > 400) {
+          setLyric._last = nowMs;
+          lastShown = L[lineIdx].text;
+          const wasEgg = eggActive;
+          const nowEgg = isEggLine(lastShown);
+          eggActive = nowEgg;
+          if (eggActive && !wasEgg) enterEgg();
+          else if (!eggActive && wasEgg) exitEgg();
+          applyEggFont();
+          setLyric(lastShown, L[lineIdx].back);
+          stopGrowingE();
+          if (nowEgg && isEooText(lastShown)) startGrowingE();
+        }
       }
     }
     if (S.track.duration_ms) {
