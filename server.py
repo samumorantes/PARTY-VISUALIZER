@@ -575,6 +575,7 @@ def enrich(track, token, max_words=4):
 
 # ---------------------------------------------------------------- estado / demo
 _player_cache = {"data": None, "at": 0.0, "mw": 4}
+_ratelimited_until = 0.0   # timestamp hasta el que Spotify nos castigó (429 QUOTA_EXCEEDED)
 _demo_start = time.time()
 # cache del sync: guarda progress_ms + ts + track_id para poder servir todos los polls
 # sin martillar Spotify. track_id se rellena siempre para que el cliente no recargue state.
@@ -640,12 +641,21 @@ def demo_state():
 
 
 def build_state(max_words=4):
+    global _ratelimited_until
     if not CLIENT_ID or not load_tokens():
         return demo_state()
     token = access_token()
     if not token:
         return demo_state()
     now = time.time()
+    # cuota de Spotify agotada: no machacar la API, servir cache hasta que pase el castigo
+    if _ratelimited_until > now:
+        if _player_cache["data"]:
+            return _player_cache["data"]
+        out = {"logged_in": True, "demo": False, "is_playing": False, "progress_ms": 0,
+               "track": None, "lyrics": [], "beats": [], "bars": [], "sections": [],
+               "tempo": 120.0, "mood": "party", "cover": None}
+        return out
     if _player_cache["data"] and _player_cache["mw"] == max_words and now - _player_cache["at"] < 0.5:
         return _player_cache["data"]
     player = fetch_player(token)
@@ -655,6 +665,13 @@ def build_state(max_words=4):
     if player.get("error"):
         if player["error"] == "ratelimit" and _player_cache["data"]:
             return _player_cache["data"]  # rate-limit transitorio: sirve el último estado
+        if player["error"] == "ratelimit":
+            # cuota agotada (429 con Retry-After largo): estado vacío pero SIN error
+            # para que el LED muestre WAIT y no OFFLINE/reconnect. Además marcar el
+            # castigo global para dejar de llamar a la API hasta que expire.
+            _ratelimited_until = time.time() + 1200   # 20 min de pausa prudente
+            out["ratelimited"] = True
+            return out
         out["error"] = player["error"]
         return out
     if not player.get("item"):
