@@ -136,7 +136,7 @@ def access_token():
     if not t:
         return None
     if t.get("expires_at", 0) <= time.time() + 60:
-        st, data = request("https://accounts.spotify.com/api/token", form={
+        st, data = token_exchange({
             "grant_type": "refresh_token",
             "refresh_token": t.get("refresh_token", ""),
             "client_id": CLIENT_ID,
@@ -846,6 +846,25 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._send(200, json.dumps(out), "application/json; charset=utf-8")
             except Exception as e:
                 self._send(500, json.dumps({"error": str(e)}), "application/json; charset=utf-8")
+        elif p == "/api/track-cover":
+            # Portada de un track por id (para la transición vinilo: mostrar
+            # YA la portada de la canción entrante durante el giro)
+            try:
+                tok = access_token()
+                tid = urllib.parse.parse_qs(u.query).get("id", [""])[0]
+                cover = None
+                if tok and tid:
+                    st, data = request("https://api.spotify.com/v1/tracks/%s"
+                                       % urllib.parse.quote(tid),
+                                       headers={"Authorization": "Bearer " + tok})
+                    if st == 200 and isinstance(data, dict):
+                        imgs = (data.get("album") or {}).get("images") or []
+                        cover = imgs[-1]["url"] if imgs else None
+                self._send(200, json.dumps({"cover": cover}),
+                           "application/json; charset=utf-8")
+            except Exception as e:
+                self._send(200, json.dumps({"cover": None, "error": str(e)}),
+                           "application/json; charset=utf-8")
         elif p == "/api/queue":
             # Cola de Spotify: próximas canciones (para el ticker inferior-izquierdo)
             try:

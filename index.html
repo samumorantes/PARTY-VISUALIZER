@@ -671,6 +671,13 @@ let _tickBusy = false;async function tick() {
       posAt = performance.now();
     } else {
       // cambió canción o primer load → recargar estado completo
+      // Transición INMEDIATA al detectar el corte: tapa el tiempo de carga
+      // de letras/análisis de la canción nueva (que puede tardar 1-2s)
+      if (S && S.track && sync.track_id && S.track.id !== sync.track_id && curTrack !== null) {
+        playTransitionFor(sync.track_id);
+        // congelar la letra vieja bajo la transición: limpiar punteros ya
+        lineIdx = -1; beatPtr = 0; barPtr = 0; secPtr = 0; lastShown = null;
+      }
       const r2 = await fetch("/api/state?mw=" + cfg.phrase, { cache: "no-store" });
       S = await r2.json();
       playing = !!S.is_playing;
@@ -804,8 +811,8 @@ function frame() {
   if (S && curTrack) {
     const t = nowPos();
     const L = S.lyrics || [];
-    // PRIMEROS 4 SEGUNDOS: mostrar el título de la canción (intro para el público)
-    if (t < 4.0 && S.track) {
+    // PRIMEROS 7 SEGUNDOS: mostrar el título de la canción (intro para el público)
+    if (t < 7.0 && S.track) {
       const title = "♪ " + S.track.name + " ♪";
       if (lastShown !== title) {
         lastShown = title;
@@ -1143,11 +1150,15 @@ function dropFlash() {
 
 /* ---------- transiciones al cambiar de canción (3 estilos) ---------- */
 function playChannel() {
+  playTransitionFor(null);
+}
+/* nextTrackId: si se pasa, el vinilo muestra YA la portada de la canción nueva */
+function playTransitionFor(nextTrackId) {
   const mode = cfg.transition || "tv";
   if (mode === "none") return;
   if (mode === "tv") return playChannelTV();
   if (mode === "shutter") return playShutter();
-  if (mode === "vinyl") return playVinyl();
+  if (mode === "vinyl") return playVinyl(nextTrackId);
 }
 
 /* 1) TV antigua: barras SMPTE + estática (el clásico) */
@@ -1175,17 +1186,30 @@ function playShutter() {
   setTimeout(() => { s.classList.remove("anim-shutter"); s.style.display = "none"; }, 1100);
 }
 
-/* 3. Vinilo: disco negro gira y sale la nueva portada en el centro */
-function playVinyl() {
+/* 3. Vinilo: disco negro gira y sale la nueva portada en el centro.
+   nextTrackId: portada de la canción ENTRANTE (antes de cargar su estado). */
+function playVinyl(nextTrackId) {
   const s = $("transOverlay");
-  const cover = (S && S.track && S.track.cover) ? S.track.cover : "";
+  let cover = (S && S.track && S.track.cover) ? S.track.cover : "";
+  // si la transición llega ANTES de recargar el estado, traer la portada nueva
+  if (nextTrackId) {
+    fetch("/api/track-cover?id=" + encodeURIComponent(nextTrackId), { cache: "no-store" })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (d && d.cover) {
+          const img = s.querySelector(".vinyl-cover");
+          if (img) img.src = d.cover;   // swap en vivo durante el giro
+        }
+      }).catch(() => {});
+  }
   s.innerHTML =
     '<div class="vinyl"><div class="vinyl-hole"></div></div>' +
     (cover ? '<img class="vinyl-cover" src="' + cover + '">' : '');
   s.style.display = "block";
   void s.offsetWidth;
   s.classList.add("anim-vinyl");
-  setTimeout(() => { s.classList.remove("anim-vinyl"); s.style.display = "none"; }, 1200);
+  clearTimeout(playVinyl._t);
+  playVinyl._t = setTimeout(() => { s.classList.remove("anim-vinyl"); s.style.display = "none"; }, 1200);
 }
 
 /* ---------- arranque ---------- */
