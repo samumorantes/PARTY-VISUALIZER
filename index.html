@@ -1105,7 +1105,14 @@ function setContrast(css) {
     const lin = c => { c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); };
     lum = 0.2126 * lin(+m[0]) + 0.7152 * lin(+m[1]) + 0.0722 * lin(+m[2]);
   }
-  const tc = lum > 0.36 ? "#101018" : "#ffffff";
+  setTextColor(lum > 0.36 ? "#101018" : "#ffffff");
+}
+
+/* Cambio de color de texto con GUARDA anti-flicker: solo toca el DOM si cambia */
+let _lastTc = null;
+function setTextColor(tc) {
+  if (_lastTc === tc) return;
+  _lastTc = tc;
   document.documentElement.style.setProperty("--tc", tc);
 }
 
@@ -1124,8 +1131,16 @@ function setFluidContrast() {
       n++;
     }
     const avgLum = sum / Math.max(1, n) / 255;
-    // umbral amplio: si la zona central es clara → texto oscuro; oscura → blanco
-    document.documentElement.style.setProperty("--tc", avgLum > 0.45 ? "#101018" : "#ffffff");
+    // HISTÉRESIS anti-parpadeo: para pasar a oscuro hay que superar 0.52 y
+    // para volver a blanco bajar de 0.38. En la zona muerta se mantiene el
+    // color actual → cero alternancias cuando los blobs rondan el umbral.
+    const dark = "#101018", white = "#ffffff";
+    const cur = document.documentElement.style.getPropertyValue("--tc") || "";
+    if (cur === dark) {
+      setTextColor(avgLum > 0.38 ? dark : white);   // seguir oscuro hasta bajar de .38
+    } else {
+      setTextColor(avgLum > 0.52 ? dark : white);   // exigir claridad real para oscurecer
+    }
   } catch (e) { /* canvas tainted: mantener contraste actual */ }
 }
 
