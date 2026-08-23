@@ -600,8 +600,10 @@ function applyFisheye(el, text) {
     const lift = -t * t * 9;                      // curva vertical notoria
     const rotY = t * -14;                         // bordes giran hacia dentro
     span.style.display = "inline-block";
-    span.style.marginLeft = "0.05em";
-    span.style.marginRight = "0.05em";
+    // kerning: SOLO entre caracteres de la misma palabra (los espacios ya separan)
+    if (ch !== " " && i + 1 < n && chars[i + 1] !== " ") {
+      span.style.marginRight = "0.05em";
+    }
     if (ch === " ") {
       // espacio entre palabras: ancho fijo proporcional a la fuente
       span.style.width = "0.5em";
