@@ -53,6 +53,7 @@ _track_cache = {}   # track_id -> {"lyrics": [...], "beats": [...], "tempo": flo
 
 # ---------------------------------------------------------------- helpers HTTP
 _last_raw = {"body": b""}  # último cuerpo crudo de respuesta (debug)
+_lyrics_permanent = {}     # track_id -> letras; la letra NUNCA cambia → caché sin expiración
 
 # Abridor SIN proxy: el proceso en background puede heredar proxies del sistema
 # que corrompen los POST (error GFE "malformed request"); forzamos conexión directa.
@@ -153,9 +154,27 @@ def access_token():
 
 
 # ---------------------------------------------------------------- Spotify
+_api_budget = {"count": 0, "window_start": 0.0}   # presupuesto de llamadas/30s
+
+def api_allow(n=1):
+    """Presupuesto global de llamadas a la API de Spotify: máx 60 por 30s
+    (Spotify corta en ~180/30s; margen x3 para no volver a 429)."""
+    now = time.time()
+    if now - _api_budget["window_start"] >= 30:
+        _api_budget["window_start"] = now
+        _api_budget["count"] = 0
+    if _api_budget["count"] + n > 60:
+        return False          # presupuesto agotado: NO llamar, usar caché
+    _api_budget["count"] += n
+    return True
+
+
 def fetch_player(token):
-    """Estado actual del reproductor: {is_playing, progress_ms, item}."""
+    """Estado actual del reproductor: {is_playing, progress_ms, item}.
+    Con presupuesto agotado devuelve {} (sin llamar) para no gastar cuota."""
     h = {"Authorization": "Bearer " + token}
+    if not api_allow():
+        return {}
 
     st, data = request("https://api.spotify.com/v1/me/player/currently-playing", headers=h)
     if st == 204:  # nada sonando -> probar /player (pausado sin pista activa)
@@ -395,7 +414,13 @@ def fetch_lyrics(track, token=None):
     5) Respaldo sintético con el título — NUNCA devuelve vacío.
 
     Tras obtenerlas: si NO hay paréntesis, detectar voces alternadas
-    (Perreo/Tra-tra/Mami/baby/ey...) y crear `back` automáticamente."""
+    (Perreo/Tra-tra/Mami/baby/ey...) y crear `back` automáticamente.
+
+    CACHÉ PERMANENTE por track_id: la letra de una canción no cambia nunca;
+    solo se busca una vez por reinicio del servidor (0 llamadas al repetir)."""
+    tid = track.get("id") or ""
+    if tid and tid in _lyrics_permanent:
+        return _lyrics_permanent[tid]
     dur = round(track["duration_ms"] / 1000) if track.get("duration_ms") else None
 
     # 1) Spotify interno primero — usa paréntesis reales para los backs
@@ -404,6 +429,7 @@ def fetch_lyrics(track, token=None):
         found = fetch_lyrics_spotify(track, token)
         if found:
             if _has_backs(found):
+                _lyrics_permanent[tid] = found
                 return found
             spotify_no_backs = found   # guardar por si LRCLIB tampoco tiene
 
@@ -416,10 +442,12 @@ def fetch_lyrics(track, token=None):
     if st == 200 and data and data.get("syncedLyrics"):
         lines = parse_lrc(data["syncedLyrics"])
         if _has_backs(lines):
+            _lyrics_permanent[tid] = lines
             return lines
         # LRCLIB sin paréntesis → detectar voces alternadas
         merged = _merge_alternating_voices(lines)
         if _has_backs(merged):
+            _lyrics_permanent[tid] = merged
             return merged
 
     # 3) LRCLIB búsqueda — PREFERIR la versión con paréntesis (backs reales)
@@ -435,6 +463,7 @@ def fetch_lyrics(track, token=None):
             if re.search(r"\([^\d)][^)]*\)", synced):
                 lines = parse_lrc(synced)
                 if _has_backs(lines):
+                    _lyrics_permanent[tid] = lines
                     return lines
         # Si ninguna tenía paréntesis, mejor coincidencia por duración
         best, best_diff = None, None
@@ -447,24 +476,32 @@ def fetch_lyrics(track, token=None):
         if best:
             lines = parse_lrc(best["syncedLyrics"])
             if _has_backs(lines):
+                _lyrics_permanent[tid] = lines
                 return lines
             merged = _merge_alternating_voices(lines)
             if _has_backs(merged):
+                _lyrics_permanent[tid] = merged
                 return merged
 
     # 4) Spotify interno sin backs + detección de voces alternadas
     if spotify_no_backs:
         merged = _merge_alternating_voices(spotify_no_backs)
         if _has_backs(merged):
+            _lyrics_permanent[tid] = merged
             return merged
+        _lyrics_permanent[tid] = spotify_no_backs
         return spotify_no_backs
 
     # 5) lyrics.ovh y, como último recurso, letra sintética (nunca vacío)
     plain = fetch_lyrics_plain(track)
     if plain:
         merged = _merge_alternating_voices(plain)
-        return merged if _has_backs(merged) else plain
-    return _fallback_lines(track)
+        res = merged if _has_backs(merged) else plain
+        _lyrics_permanent[tid] = res
+        return res
+    res = _fallback_lines(track)
+    _lyrics_permanent[tid] = res
+    return res
 
 
 def _fallback_lines(track):
@@ -576,6 +613,8 @@ def enrich(track, token, max_words=4):
 # ---------------------------------------------------------------- estado / demo
 _player_cache = {"data": None, "at": 0.0, "mw": 4}
 _ratelimited_until = 0.0   # timestamp hasta el que Spotify nos castigó (429 QUOTA_EXCEEDED)
+_queue_cache = {"items": None, "at": 0.0}      # cola: 1 llamada/min máx
+_cover_cache = {}          # track_id -> URL de portada (permanente)
 _demo_start = time.time()
 # cache del sync: guarda progress_ms + ts + track_id para poder servir todos los polls
 # sin martillar Spotify. track_id se rellena siempre para que el cliente no recargue state.
@@ -656,8 +695,16 @@ def build_state(max_words=4):
                "track": None, "lyrics": [], "beats": [], "bars": [], "sections": [],
                "tempo": 120.0, "mood": "party", "cover": None}
         return out
-    if _player_cache["data"] and _player_cache["mw"] == max_words and now - _player_cache["at"] < 0.5:
+    if _player_cache["data"] and _player_cache["mw"] == max_words and now - _player_cache["at"] < 2.0:
         return _player_cache["data"]
+    if not api_allow():
+        # presupuesto agotado: servir el último estado sin gastar cuota
+        if _player_cache["data"]:
+            return _player_cache["data"]
+        out = {"logged_in": True, "demo": False, "is_playing": False, "progress_ms": 0,
+               "track": None, "lyrics": [], "beats": [], "bars": [], "sections": [],
+               "tempo": 120.0, "mood": "party", "cover": None}
+        return out
     player = fetch_player(token)
     out = {"logged_in": True, "demo": False, "is_playing": False, "progress_ms": 0,
            "track": None, "lyrics": [], "beats": [], "bars": [], "sections": [],
@@ -818,12 +865,13 @@ class Handler(http.server.BaseHTTPRequestHandler):
                            "track_id": _sync_cache["track_id"],
                            "ts": _t, "health": "waiting"}
                     if tok:
-                        # Fuente de verdad: refrescar Spotify 2 veces/segundo.
-                        # pos_at y fetched_at tienen funciones separadas: así el polling
-                        # no bloquea para siempre los seeks/cambios de canción.
-                        if _t - _sync_cache["fetched_at"] >= 0.5 or _sync_cache["fetched_at"] == 0:
+                        # OPTIMIZADO: solo llamar a Spotify si el presupuesto lo permite.
+                        # Intervalo adaptativo: 1.5s normal (vs 0.5s antes = 3x menos llamadas);
+                        # la extrapolación local cubre los huecos con precisión de ~50ms.
+                        MIN_FETCH = 1.5
+                        if (_t - _sync_cache["fetched_at"] >= MIN_FETCH or _sync_cache["fetched_at"] == 0):
                             player = fetch_player(tok)
-                            if player:
+                            if player and player.get("item") is not None or (player and not player.get("error")):
                                 _sync_cache["is_playing"] = player.get("is_playing", False)
                                 _sync_cache["prog"] = player.get("progress_ms", 0) or 0
                                 _sync_cache["pos_at"] = _t
@@ -841,7 +889,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
                                     _sync_cache["lyrics"] = fetch_lyrics(track_for_lyrics, tok)
                                 elif not new_tid:
                                     _sync_cache["track_id"] = new_tid
-                            _sync_cache["fetched_at"] = _t
+                            if player:
+                                _sync_cache["fetched_at"] = _t
+                            elif _t - _sync_cache["fetched_at"] > MIN_FETCH * 3:
+                                # presupuesto agotado varios ciclos: marcar espera
+                                _sync_cache["fetched_at"] = _t - MIN_FETCH   # reintentar pronto igualmente
                         # Extrapolación pura: no muta el cache ni el timestamp de fetch.
                         prog = _sync_cache["prog"]
                         if _sync_cache["is_playing"]:
@@ -865,29 +917,38 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._send(500, json.dumps({"error": str(e)}), "application/json; charset=utf-8")
         elif p == "/api/track-cover":
             # Portada de un track por id (para la transición vinilo: mostrar
-            # YA la portada de la canción entrante durante el giro)
+            # YA la portada de la canción entrante durante el giro). Con caché.
             try:
-                tok = access_token()
                 tid = urllib.parse.parse_qs(u.query).get("id", [""])[0]
-                cover = None
-                if tok and tid:
-                    st, data = request("https://api.spotify.com/v1/tracks/%s"
-                                       % urllib.parse.quote(tid),
-                                       headers={"Authorization": "Bearer " + tok})
-                    if st == 200 and isinstance(data, dict):
-                        imgs = (data.get("album") or {}).get("images") or []
-                        cover = imgs[-1]["url"] if imgs else None
-                self._send(200, json.dumps({"cover": cover}),
+                cover = _cover_cache.get(tid)
+                if cover is None and tid and api_allow():
+                    tok = access_token()
+                    if tok:
+                        st, data = request("https://api.spotify.com/v1/tracks/%s"
+                                           % urllib.parse.quote(tid),
+                                           headers={"Authorization": "Bearer " + tok})
+                        if st == 200 and isinstance(data, dict):
+                            imgs = (data.get("album") or {}).get("images") or []
+                            cover = imgs[-1]["url"] if imgs else None
+                            _cover_cache[tid] = cover or ""
+                self._send(200, json.dumps({"cover": cover or None}),
                            "application/json; charset=utf-8")
             except Exception as e:
                 self._send(200, json.dumps({"cover": None, "error": str(e)}),
                            "application/json; charset=utf-8")
         elif p == "/api/queue":
-            # Cola de Spotify: próximas canciones (para el ticker inferior-izquierdo)
+            # Cola de Spotify: próximas canciones (ticker inferior-izquierdo).
+            # CACHÉ 60s: el ticker se refresca cada 15s pero solo 1 llamada/min.
             try:
+                now = time.time()
+                if now - _queue_cache["at"] < 60 and _queue_cache["items"] is not None:
+                    self._send(200, json.dumps({"queue": _queue_cache["items"]}),
+                               "application/json; charset=utf-8")
+                    return
                 tok = access_token()
-                if not tok:
-                    self._send(200, json.dumps({"queue": []}), "application/json; charset=utf-8")
+                if not tok or not api_allow():
+                    self._send(200, json.dumps({"queue": _queue_cache["items"] or []}),
+                               "application/json; charset=utf-8")
                     return
                 st, data = request("https://api.spotify.com/v1/me/player/queue",
                                    headers={"Authorization": "Bearer " + tok})
@@ -901,6 +962,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
                             "artist": artists,
                             "cover": imgs[-1]["url"] if imgs else None,
                         })
+                _queue_cache["items"] = items
+                _queue_cache["at"] = now
                 self._send(200, json.dumps({"queue": items}), "application/json; charset=utf-8")
             except Exception as e:
                 self._send(200, json.dumps({"queue": [], "error": str(e)}),
