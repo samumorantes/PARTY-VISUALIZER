@@ -150,7 +150,10 @@
 
   /* huevo: sin fósforos RGB (se queda la viñeta) */
   .line{font-family:var(--lyric-font);font-size:var(--fs);line-height:1.45;max-width:88vw;
-    text-shadow:0 0 2.5vmin rgba(255,255,255,.18), 0 2px 8px rgba(0,0,0,.45)}
+    text-shadow:0 0 2.5vmin rgba(255,255,255,.14), 0 2px 6px rgba(0,0,0,.4);
+    will-change:transform}
+  /* spans del fisheye: aislar en GPU para que la máscara RGB no los "fase" */
+  .line.main span{display:inline-block}
   /* SUBTÍTULO: más pequeño y opaco (backs/paréntesis) */
   .line.back{font-size:calc(var(--fs) * .5);opacity:.45;line-height:1.2;
     text-shadow:none;letter-spacing:0}
@@ -594,11 +597,11 @@ function applyFisheye(el, text) {
     const centerPx = (acc + widths[i] / 2) / totalUnits * totalW;
     acc += widths[i];
     const t = Math.max(-1, Math.min(1, (centerPx - totalW / 2) / (totalW / 2)));
-    // proyección esférica MÁS AGRESIVA para que se note
-    const k = Math.cos(t * Math.PI / 2.4);        // cae más rápido hacia los bordes
-    const scale = 0.62 + 0.38 * k;                // 1.0 centro → 0.80 borde
-    const lift = -t * t * 9;                      // curva vertical notoria
-    const rotY = t * -14;                         // bordes giran hacia dentro
+    // proyección esférica SUAVE: curva visible sin que los glifos se monten
+    const k = Math.cos(t * Math.PI / 2.8);        // cae suave hacia los bordes
+    const scale = 0.88 + 0.12 * k;                // 1.0 centro → 0.93 borde
+    const lift = -t * t * 4;                      // curva vertical sutil
+    const rotY = t * -4;                          // giro mínimo (evita solape)
     span.style.display = "inline-block";
     // kerning: SOLO entre caracteres de la misma palabra (los espacios ya separan)
     if (ch !== " " && i + 1 < n && chars[i + 1] !== " ") {
