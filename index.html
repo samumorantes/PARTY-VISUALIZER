@@ -150,8 +150,7 @@
 
   /* huevo: sin fósforos RGB (se queda la viñeta) */
   .line{font-family:var(--lyric-font);font-size:var(--fs);line-height:1.45;max-width:88vw;
-    text-shadow:0 0 2.5vmin rgba(255,255,255,.14), 0 2px 6px rgba(0,0,0,.4);
-    will-change:transform}
+    text-shadow:var(--lyric-shadow, 0 0 2.5vmin rgba(255,255,255,.14))}
   /* spans del fisheye: aislar en GPU para que la máscara RGB no los "fase" */
   .line.main span{display:inline-block}
   /* SUBTÍTULO: más pequeño y opaco (backs/paréntesis) */
@@ -281,12 +280,18 @@
       <select id="fontSel">
         <option value="arcade">Arcade Classic</option>
         <option value="grotesk">Space Grotesk</option>
+        <option value="impact">Impact (memes)</option>
+        <option value="courier">Courier (terminal)</option>
+        <option value="georgia">Georgia (serif)</option>
         <option value="system">Sistema</option>
       </select></div>
     <div class="row"><label>Palabras por frase: <span class="val" id="phraseVal">4</span></label>
       <input id="phraseRng" type="range" min="2" max="8" step="1" value="4"></div>
     <div class="chk"><input id="upperChk" type="checkbox"> MAYÚSCULAS</div>
-    <div class="chk"><input id="glowChk" type="checkbox" checked> Resplandor</div>
+    <div class="row"><label>Grosor del borde: <span class="val" id="strokeVal">2</span></label>
+      <input id="strokeRng" type="range" min="0" max="6" step="1" value="2"></div>
+    <div class="row"><label>Sombra: <span class="val" id="shadowVal">50</span></label>
+      <input id="shadowRng" type="range" min="0" max="100" step="1" value="50"></div>
 
     <h3>Color y ritmo</h3>
     <div class="row"><label>Cambio de color</label>
@@ -297,11 +302,17 @@
       </select></div>
     <div class="row"><label>Paleta</label>
       <select id="cmode">
-        <option value="rgb">RGB aleatorio puro</option>
-        <option value="pastel">HSV pastel</option>
+        <option value="rgb">RGB intenso (recomendado)</option>
+        <option value="pastel">Pastel suave</option>
+        <option value="neon">Neón eléctrico</option>
+        <option value="sunset">Atardecer</option>
+        <option value="ocean">Océano</option>
         <option value="byn">Blanco y negro</option>
       </select></div>
-    <div class="chk"><input id="pulseChk" type="checkbox" checked> Pulso blanco en cada beat</div>
+    <div class="row"><label>Fuerza del flash: <span class="val" id="flashVal">40</span></label>
+      <input id="flashRng" type="range" min="0" max="100" step="5" value="40"></div>
+    <div class="chk"><input id="pulseColorChk" type="checkbox" checked> Pulso DEL COLOR en cada beat (fluido)</div>
+    <div class="chk"><input id="pulseWhiteChk" type="checkbox"> Flash blanco en cada beat (fiesta)</div>
     <div class="row"><label>Modo visual</label>
       <select id="moodSel">
         <option value="auto">Auto (detecta baladas)</option>
@@ -333,9 +344,11 @@
         <option value="tv">📺 TV antigua (barras + estática)</option>
         <option value="shutter">🎬 Obturador de cine</option>
         <option value="vinyl">💿 Vinilo con la portada</option>
+        <option value="flashcolor">🌈 Flash de color</option>
         <option value="none">Sin transición</option>
       </select></div>
     <div class="row"><button id="testChan" class="btn2">Probar transición</button></div>
+    <div class="row"><button id="resetBtn" class="btn2">↺ Restablecer configuración</button></div>
 
     <h3>Cuenta</h3>
     <div class="row"><button id="loginBtn" class="btn">Conectar con Spotify</button></div>
@@ -366,11 +379,23 @@ let pos = 0, posAt = 0, speed = 0;       // reloj local con corrección de fase
 const FONTS = {
   arcade: "'ArcadeClassic',monospace",
   grotesk: "'SpaceGrotesk',sans-serif",
+  impact: "Impact,'Arial Black',sans-serif",
+  courier: "'Courier New',monospace",
+  georgia: "Georgia,serif",
   system: "system-ui,sans-serif",
 };
+/* Paletas para el modo fiesta */
+const PALETTES = {
+  rgb:    ["rgb(255,23,68)", "rgb(255,109,0)", "rgb(255,214,0)", "rgb(0,230,118)", "rgb(0,176,255)", "rgb(101,31,255)", "rgb(213,0,249)"],
+  pastel: ["hsl(340 85% 72%)", "hsl(30 90% 74%)", "hsl(55 90% 72%)", "hsl(150 70% 70%)", "hsl(200 85% 74%)", "hsl(265 80% 78%)"],
+  neon:   ["hsl(320 100% 55%)", "hsl(275 100% 60%)", "hsl(190 100% 50%)", "hsl(120 100% 50%)", "hsl(55 100% 55%)", "hsl(15 100% 55%)"],
+  sunset: ["hsl(355 95% 58%)", "hsl(20 100% 60%)", "hsl(40 100% 62%)", "hsl(310 75% 60%)", "hsl(280 80% 62%)"],
+  ocean:  ["hsl(200 95% 45%)", "hsl(180 90% 42%)", "hsl(220 90% 55%)", "hsl(165 85% 48%)", "hsl(240 80% 60%)"],
+};
 const CFG_DEFAULTS = {
-  fs: 7, font: "arcade", phrase: 4, upper: false, glow: true,
-  timing: "beats", mode: "rgb", pulse: true,
+  fs: 7, font: "arcade", phrase: 4, upper: false,
+  stroke: 2, shadow: 50,
+  timing: "beats", mode: "rgb", pulseColor: true, pulseWhite: false, flashStrength: 40,
   scan: 70, mask: 60, vig: 70, noise: 50, flicker: true, tilt: true, refresh: true,
   scanOn: true, fish: true, transition: "tv",
   autoMood: true, moodOverride: "auto",
@@ -404,13 +429,41 @@ bindRange("scanRng", "scan", "scanVal");
 bindRange("maskRng", "mask", "maskVal");
 bindRange("vigRng", "vig", "vigVal");
 bindRange("noiseRng", "noise", "noiseVal");
-bindChk("upperChk", "upper"); bindChk("glowChk", "glow"); bindChk("pulseChk", "pulse");
+bindRange("strokeRng", "stroke", "strokeVal");
+bindRange("shadowRng", "shadow", "shadowVal");
+bindRange("flashRng", "flashStrength", "flashVal", v => v + "%");
+bindChk("upperChk", "upper"); bindChk("pulseColorChk", "pulseColor"); bindChk("pulseWhiteChk", "pulseWhite");
 bindChk("flickChk", "flicker"); bindChk("tiltChk", "tilt"); bindChk("refChk", "refresh");
 bindChk("scanChk", "scanOn"); bindChk("fishChk", "fish");
 bindChk("moodChk", "autoMood");
 bindSel("moodSel", "moodOverride"); bindSel("transSel", "transition");
 bindSel("fontSel", "font"); bindSel("ctiming", "timing"); bindSel("cmode", "mode");
 $("testChan").onclick = playChannel;
+$("resetBtn").onclick = () => {
+  Object.assign(cfg, CFG_DEFAULTS);
+  save(); applyCfg(); syncAllControls();
+  $("testChan").textContent = "✓ Configuración restablecida";
+  setTimeout(() => { $("testChan").textContent = "Probar transición"; }, 1500);
+};
+/* Sincronizar TODOS los controles del panel con cfg (usado por reset y todo/nada) */
+function syncAllControls() {
+  [["fsRange","fs","fsVal"],["phraseRng","phrase","phraseVal"],
+   ["scanRng","scan","scanVal"],["maskRng","mask","maskVal"],
+   ["vigRng","vig","vigVal"],["noiseRng","noise","noiseVal"],
+   ["strokeRng","stroke","strokeVal"],["shadowRng","shadow","shadowVal"],
+   ["flashRng","flashStrength","flashVal"]].forEach(([id, key, valId]) => {
+    $(id).value = cfg[key]; $(valId).textContent = cfg[key];
+  });
+  [["upperChk","upper"],["pulseColorChk","pulseColor"],["pulseWhiteChk","pulseWhite"],
+   ["flickChk","flicker"],["tiltChk","tilt"],["refChk","refresh"],
+   ["scanChk","scanOn"],["fishChk","fish"],["moodChk","autoMood"]].forEach(([id, key]) => {
+    $(id).checked = !!cfg[key];
+  });
+  [["moodSel","moodOverride"],["transSel","transition"],
+   ["fontSel","font"],["ctiming","timing"],["cmode","mode"]].forEach(([id, key]) => {
+    $(id).value = cfg[key];
+  });
+}
 $("loginBtn").onclick = () => { location.href = S && S.logged_in ? "/logout" : "/login"; };
 $("logoutBtn").onclick = () => { location.href = "/logout"; };
 $("bigLogin").onclick = () => { location.href = "/login"; };
@@ -446,6 +499,7 @@ $("crtAll").onclick = () => {
   });
   save(); applyCfg();
   syncCrtControls();
+  syncAllControls();
 };
 function syncCrtControls() {
   // reflejar el estado en los checkboxes y sliders del panel
@@ -466,12 +520,20 @@ function applyCfg() {
   r.setProperty("--mask-op", (cfg.mask / 100 * 0.30).toFixed(3));
   r.setProperty("--vig-op", (cfg.vig / 100 * 0.80).toFixed(3));
   r.setProperty("--noise-op", (cfg.noise / 100 * 0.15).toFixed(3));
+  // borde del texto (stroke): 4 sombras duras alrededor, grosor configurable
+  const st = +cfg.stroke || 0;
+  const strokeShadow = st > 0
+    ? `, ${st}px 0 0 rgba(0,0,0,.55), -${st}px 0 0 rgba(0,0,0,.55), 0 ${st}px 0 rgba(0,0,0,.55), 0 -${st}px 0 rgba(0,0,0,.55)`
+    : "";
+  // sombra proyectada configurable
+  const sh = (+cfg.shadow || 0) / 100;
+  const shadowShadow = sh > 0 ? `, 0 ${(2 + sh * 8).toFixed(1)}px ${(6 + sh * 14).toFixed(1)}px rgba(0,0,0,${(sh * 0.7).toFixed(2)})` : "";
+  r.setProperty("--lyric-shadow", `0 0 2.5vmin rgba(255,255,255,.14)${strokeShadow}${shadowShadow}`);
   document.body.classList.toggle("flicker-off", !cfg.flicker);
   $("screen").classList.toggle("tilt-off", !cfg.tilt);
   $("refresh").classList.toggle("hidden-refresh", !cfg.refresh);
   $("crt").style.display = cfg.scanOn ? "" : "none";   // scanlines OFF = sin capa CRT
   const ly = $("lyrics");
-  ly.classList.toggle("no-glow", !cfg.glow);
   document.body.classList.toggle("fisheye", !!cfg.fish);   // ojo de pez GLOBAL
   ly.classList.toggle("upper", cfg.upper);
   applyEggFont();
@@ -891,9 +953,9 @@ function frame() {
     } else if (playing) {
       const B = S.beats || [], BR = S.bars || [], SE = S.sections || [];
       if (cfg.timing === "beats") {
-        while (beatPtr < B.length && B[beatPtr] <= t) { if (cfg.pulse) pulse(); onColor(); beatPtr++; }
+        while (beatPtr < B.length && B[beatPtr] <= t) { if (cfg.pulseWhite || cfg.pulseColor) pulse(); onColor(); beatPtr++; }
       } else {
-        while (beatPtr < B.length && B[beatPtr] <= t) { if (cfg.pulse) pulse(); beatPtr++; }
+        while (beatPtr < B.length && B[beatPtr] <= t) { if (cfg.pulseWhite) pulse(); beatPtr++; }
         if (cfg.timing === "sections") {
           while (secPtr < SE.length && SE[secPtr] <= t) { onColor(); dropFlash(); secPtr++; }
         } else {
@@ -1035,7 +1097,8 @@ function hsl2rgb(h, s, l) {
 }
 
 function fluidPulse() {          // llamado en cada beat del frame()
-  fluidEnergy = Math.min(2.0, fluidEnergy + 1.1);
+  // "Pulso del color" ON → golpe de energía más fuerte (blobs crecen de golpe)
+  fluidEnergy = Math.min(cfg.pulseColor ? 2.6 : 1.2, fluidEnergy + (cfg.pulseColor ? 1.5 : 0.7));
   // en cada beat, un blob aleatorio rota hacia OTRO color de la paleta (variedad)
   if (fluidBlobs.length && coverPalette && coverPalette.length > 1) {
     const b = fluidBlobs[Math.floor(Math.random() * fluidBlobs.length)];
@@ -1109,7 +1172,8 @@ function newColor() {
     const h = Math.floor(Math.random() * 360);
     return `hsl(${h} 85% 62%)`;
   }
-  return BEAT_PALETTE[colorPtr++ % BEAT_PALETTE.length];
+  const pal = PALETTES[cfg.mode] || PALETTES.rgb;
+  return pal[colorPtr++ % pal.length];
 }
 
 function setContrast(css) {
@@ -1174,11 +1238,28 @@ function hexToRgb(h) {
 
 function pulse() {
   const f = $("flash");
-  f.style.transition = "none"; f.style.opacity = "0.12";
-  requestAnimationFrame(() => { f.style.transition = "opacity .35s ease-out"; f.style.opacity = "0"; });
+  // FUERZA DEL FLASH configurable (0-100). Color según paleta activa:
+  // flash del color del beat en vez de blanco cuando "Pulso de color" está ON.
+  const s = Math.max(0, Math.min(100, +cfg.flashStrength || 0)) / 100;
+  if (s <= 0) return;                       // fuerza 0 = sin flashes
+  if (cfg.pulseColor && !cfg.pulseWhite) {
+    // flash DEL COLOR ACTUAL: el fondo se aclara y vuelve, sin blanco
+    const bg = $("bg").style.backgroundColor || "rgb(255,23,68)";
+    f.style.background = bg;
+    f.style.transition = "none";
+    f.style.opacity = String(s * 0.55);     // el color no necesita tanta opacidad
+    requestAnimationFrame(() => { f.style.transition = "opacity .4s ease-out"; f.style.opacity = "0"; });
+    setTimeout(() => { f.style.background = "#fff"; }, 450);
+  } else {
+    f.style.background = "#fff";
+    f.style.transition = "none"; f.style.opacity = String(s * 0.30);
+    requestAnimationFrame(() => { f.style.transition = "opacity .35s ease-out"; f.style.opacity = "0"; });
+  }
 }
 function dropFlash() {
+  if (+cfg.flashStrength === 0) return;
   const f = $("flash");
+  f.style.background = "#fff";
   f.style.transition = "none"; f.style.opacity = "0.3";
   requestAnimationFrame(() => { f.style.transition = "opacity .5s ease-out"; f.style.opacity = "0"; });
 }
@@ -1194,6 +1275,26 @@ function playTransitionFor(nextTrackId) {
   if (mode === "tv") return playChannelTV();
   if (mode === "shutter") return playShutter();
   if (mode === "vinyl") return playVinyl(nextTrackId);
+  if (mode === "flashcolor") return playFlashColor();
+}
+
+/* 4) Flash de color: la pantalla se inunda con un color intenso de la paleta
+   y desvanece. Sin blanco, sin estática — puro golpe de color. */
+function playFlashColor() {
+  const s = $("transOverlay");
+  const pal = PALETTES[cfg.mode] || PALETTES.rgb;
+  const c1 = pal[Math.floor(Math.random() * pal.length)];
+  const c2 = pal[Math.floor(Math.random() * pal.length)];
+  s.innerHTML = "";
+  s.style.background = `linear-gradient(135deg, ${c1}, ${c2})`;
+  s.style.display = "block";
+  s.style.transition = "none";
+  s.style.opacity = "0.95";
+  void s.offsetWidth;
+  s.style.transition = "opacity .9s ease-in-out";
+  s.style.opacity = "0";
+  clearTimeout(playFlashColor._t);
+  playFlashColor._t = setTimeout(() => { s.style.display = "none"; s.style.background = ""; }, 950);
 }
 
 /* 1) TV antigua: barras SMPTE + estática (el clásico) */
