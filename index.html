@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>FIESTA — Visualizer</title>
+<link rel="icon" type="image/x-icon" href="/fiesta.ico">
 <style>
   @font-face{font-family:'SpaceGrotesk';src:url('/fonts/spacegrotesk.woff2') format('woff2');font-display:swap}
   @font-face{font-family:'ArcadeClassic';src:url('/fonts/arcadeclassic_full.woff') format('woff');font-display:swap}
@@ -262,14 +263,13 @@
     <img id="cover" alt="">
     <div id="meta"><div id="song">—</div><div id="artist">—</div></div>
   </div>
-  <button id="gear" title="Ajustes">⚙</button>
+  <button id="gear" title="Ajustes" aria-label="Abrir panel de ajustes">⚙</button>
   <div id="badge">DEMO</div>
 
   <!-- Selector rápido de modo: flotante bajo el engrane -->
   <div id="moodSwitch" title="Cambiar entre fiesta y fluido">
-    <button id="moodParty" title="Fiesta: flashes al beat">🎉</button>
-    <div id="moodKnob"></div>
-    <button id="moodChill" title="Fluido: colores de la portada">🌊</button>
+    <button id="moodParty" title="Fiesta: flashes al beat" aria-label="Modo fiesta">🎉</button>
+    <button id="moodChill" title="Fluido: colores de la portada" aria-label="Modo fluido">🌊</button>
   </div>
 
   <div id="panel">
@@ -402,8 +402,8 @@ const CFG_DEFAULTS = {
 };
 const cfg = Object.assign({}, CFG_DEFAULTS);
 try { Object.assign(cfg, JSON.parse(localStorage.getItem("fv_cfg") || "{}")); } catch (e) {}
-// La paleta debe reaccionar al beat real, no a barras antiguas guardadas.
-cfg.timing = "beats";
+// Timing predeterminado a beats si no está configurado
+if (!cfg.timing) cfg.timing = "beats";
 
 /* ---------- controles ---------- */
 $("gear").onclick = () => { $("panel").style.display = $("panel").style.display === "none" ? "block" : "none"; };
@@ -470,7 +470,6 @@ $("bigLogin").onclick = () => { location.href = "/login"; };
 
 /* ---------- selector rápido fiesta/fluido ---------- */
 function updateMoodSwitch() {
-  const eff = cfg.moodOverride !== "auto" ? cfg.moodOverride : (mood === "chill" ? "chill" : "auto");
   $("moodParty").classList.toggle("active", cfg.moodOverride === "party");
   $("moodChill").classList.toggle("active", cfg.moodOverride === "chill");
   // en auto: iluminar suave ambos (el sistema decide por canción)
@@ -724,8 +723,7 @@ let _tickBusy = false;async function tick() {
     if (S && S.track && sameTrack && samePlaying) {
       // misma canción, mismo estado → corrección agresiva del drift
       const drift = serverPos - pos;
-      if (Math.abs(drift) > 30) pos = serverPos;
-      else if (Math.abs(drift) > 0.5) pos = serverPos;
+      if (Math.abs(drift) > 0.5) pos = serverPos;
       else pos += drift * 0.5;
       playing = serverPlaying;
       speed = serverPlaying ? 1 : 0;
@@ -788,10 +786,16 @@ function setSyncLed(state) {
 }
 
 function showMsg(t) {
-  $("#msg").textContent = t; $("#msg").style.display = "flex";
-  $("#lyrics").style.display = "none"; $("#lineNone").style.display = "none";
+  const m = $("msg"), ly = $("lyrics"), ln = $("lineNone");
+  if (m) { m.textContent = t; m.style.display = "flex"; }
+  if (ly) ly.style.display = "none";
+  if (ln) ln.style.display = "none";
 }
-function hideMsg() { $("#msg").style.display = "none"; $("#lyrics").style.display = "flex"; }
+function hideMsg() {
+  const m = $("msg"), ly = $("lyrics");
+  if (m) m.style.display = "none";
+  if (ly) ly.style.display = "flex";
+}
 
 function renderState() {
   if (!S) { showMsg("CONECTANDO…"); return; }
@@ -977,7 +981,6 @@ function frame() {
 }
 
 /* ---------- color + ritmo ---------- */
-const BEAT_PALETTE = ["rgb(255,23,68)", "rgb(255,109,0)", "rgb(255,214,0)", "rgb(0,230,118)", "rgb(0,176,255)", "rgb(101,31,255)", "rgb(213,0,249)"];
 let colorPtr = 0;
 // Modo actual: "party" (flashes por beat) o "chill" (gradiente fluido de portada)
 let mood = "party";
@@ -990,6 +993,7 @@ function isChill() {
   return cfg.autoMood && mood === "chill";
 }
 
+let _sharedCanvas = null, _sharedCtx = null;
 /* Extrae los colores dominantes de la portada del álbum (mini-canvas, sin CORS) */
 function extractCoverPalette(url) {
   if (!url) { coverPalette = null; return; }
@@ -997,12 +1001,14 @@ function extractCoverPalette(url) {
   img.crossOrigin = "anonymous";
   img.onload = () => {
     try {
-      const c = document.createElement("canvas");
       const W = 24, H = 24;
-      c.width = W; c.height = H;
-      const ctx = c.getContext("2d");
-      ctx.drawImage(img, 0, 0, W, H);
-      const px = ctx.getImageData(0, 0, W, H).data;
+      if (!_sharedCanvas) {
+        _sharedCanvas = document.createElement("canvas");
+        _sharedCanvas.width = W; _sharedCanvas.height = H;
+        _sharedCtx = _sharedCanvas.getContext("2d", { willReadFrequently: true });
+      }
+      _sharedCtx.drawImage(img, 0, 0, W, H);
+      const px = _sharedCtx.getImageData(0, 0, W, H).data;
       // cuantizar a cubetas y contar frecuencia
       const buckets = {};
       for (let i = 0; i < px.length; i += 4) {
@@ -1338,9 +1344,13 @@ function playVinyl(nextTrackId) {
         }
       }).catch(() => {});
   }
-  s.innerHTML =
-    '<div class="vinyl"><div class="vinyl-hole"></div></div>' +
-    (cover ? '<img class="vinyl-cover" src="' + cover + '">' : '');
+  s.innerHTML = '<div class="vinyl"><div class="vinyl-hole"></div></div>';
+  if (cover) {
+    const vImg = document.createElement("img");
+    vImg.className = "vinyl-cover";
+    vImg.src = cover;
+    s.appendChild(vImg);
+  }
   s.style.display = "block";
   void s.offsetWidth;
   s.classList.add("anim-vinyl");
@@ -1366,7 +1376,7 @@ try {
   const mq = new URLSearchParams(location.search).get("mood");
   if (mq && ["auto","party","chill"].includes(mq)) cfg.moodOverride = mq;
   const tq = new URLSearchParams(location.search).get("transition");
-  if (tq && ["tv","shutter","vinyl","none"].includes(tq)) cfg.transition = tq;
+  if (tq && ["tv","shutter","vinyl","flashcolor","none"].includes(tq)) cfg.transition = tq;
 } catch (e) {}
 if (location.search.includes("chan")) playChannel();   // test visual inmediato
 
@@ -1402,6 +1412,13 @@ function wakeUI() {
 ["mousemove", "mousedown", "keydown", "touchstart"].forEach(ev =>
   document.addEventListener(ev, wakeUI, { passive: true }));
 wakeUI();
+
+// Tecla Escape para cerrar panel de ajustes
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape" && $("panel")) {
+    $("panel").style.display = "none";
+  }
+});
 </script>
 </body>
 </html>

@@ -6,8 +6,8 @@ $ErrorActionPreference = "Stop"
 
 $src     = $PSScriptRoot
 $appDir  = "$env:LOCALAPPDATA\FIESTA"
-$pyExe   = "$env:LOCALAPPDATA\Programs\Python\Python311\pythonw.exe"
-if (-not (Test-Path $pyExe)) { $pyExe = "pythonw.exe" }   # fallback al PATH
+$py = Get-Command pythonw.exe -ErrorAction SilentlyContinue
+if ($py) { $pyExe = $py.Source } else { $pyExe = "pythonw.exe" }
 
 Write-Host "== FIESTA installer ==" -ForegroundColor Magenta
 
@@ -20,8 +20,7 @@ Copy-Item "$src\fiesta_launcher.py" $appDir -Force
 Copy-Item "$src\CHANGELOG.md"       $appDir -Force -ErrorAction SilentlyContinue
 Copy-Item "$src\README.md"          $appDir -Force -ErrorAction SilentlyContinue
 if (Test-Path "$src\config.json") { Copy-Item "$src\config.json" $appDir -Force }
-New-Item -ItemType Directory -Force -Path "$appDir\fonts" | Out-Null
-Copy-Item "$src\fonts\*" "$appDir\fonts\" -Force
+Copy-Item "$src\fonts" "$appDir\" -Recurse -Force
 Write-Host "[1/5] Archivos copiados a $appDir"
 
 # 2) Lanzador .cmd (doble clic = abrir app; el server lo levanta el launcher)

@@ -22,6 +22,7 @@ import os
 import re
 import secrets
 import socketserver
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -32,7 +33,7 @@ CONFIG = os.path.join(BASE, "config.json")
 TOKENS = os.path.join(BASE, "token.json")
 PORT = 8888
 REDIRECT_URI = "http://127.0.0.1:%d/callback" % PORT
-SCOPE = "user-read-playback-state user-read-currently-playing user-read-email"
+SCOPE = "user-read-playback-state user-read-currently-playing"
 UA = "FiestaVisualizer/1.0 (proyecto local, Windows)"
 LRCLIB = "https://lrclib.net/api"
 
@@ -49,6 +50,18 @@ CLIENT_ID = load_client_id()
 
 _pkce = {}          # state -> code_verifier (entre /login y /callback)
 _track_cache = {}   # track_id -> {"lyrics": [...], "beats": [...], "tempo": float, "at": ts}
+_cache_lock = threading.Lock()
+_static_cache = {}
+
+
+def _bounded_cache_set(d, k, v, max_size=400):
+    with _cache_lock:
+        if len(d) >= max_size and k not in d:
+            try:
+                d.pop(next(iter(d)), None)
+            except Exception:
+                pass
+        d[k] = v
 
 
 # ---------------------------------------------------------------- helpers HTTP
@@ -284,8 +297,12 @@ def split_phrases(lines, duration, max_words=4):
         end = lines[i + 1]["t"] if i + 1 < len(lines) else min(start + 6.0, (duration or start + 6.0))
         span = max(end - start, 1.2)
         words = ln["text"].split()
+        back = ln.get("back")
         if len(words) <= MAX_W:
-            out.append({"t": round(start, 3), "text": ln["text"]})
+            item = {"t": round(start, 3), "text": ln["text"]}
+            if back:
+                item["back"] = back
+            out.append(item)
             continue
         # cortar primero por signos (comas, puntos, guiones)
         parts = [p.strip() for p in re.split(r"[,;:—–]\s*|\s*\.\s*|\s+-\s+", ln["text"]) if p.strip()]
@@ -297,7 +314,10 @@ def split_phrases(lines, duration, max_words=4):
                 ws = ws[MAX_W:]
         n = len(chunks)
         for j, c in enumerate(chunks):
-            out.append({"t": round(start + span * j / n, 3), "text": c})
+            item = {"t": round(start + span * j / n, 3), "text": c}
+            if j == 0 and back:
+                item["back"] = back
+            out.append(item)
     return out
 
 
@@ -581,7 +601,7 @@ def fetch_rhythm(track, token):
             def times(k):
                 return [round(x["start"], 3) for x in (data.get(k) or [])]
             beats, bars, sections = times("beats"), times("bars"), times("sections")
-            tempo = float((data.get("tracks") or {}).get("tempo") or 120.0)
+            tempo = float((data.get("track") or data.get("tracks") or {}).get("tempo") or 120.0)
             if beats:
                 return {"beats": beats, "bars": bars, "sections": sections, "tempo": tempo}
     except Exception:
@@ -751,12 +771,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *a):
         pass
 
-    def _send(self, code, body, ctype):
+    def _send(self, code, body, ctype, cache="no-store"):
         data = body.encode("utf-8") if isinstance(body, str) else body
         self.send_response(code)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(data)))
-        self.send_header("Cache-Control", "no-store")
+        self.send_header("Cache-Control", cache)
         self.end_headers()
         try:
             self.wfile.write(data)
@@ -796,8 +816,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
             return
         code, state = q.get("code", [""])[0], q.get("state", [""])[0]
         verifier = _pkce.pop(state, None)
-        print("[oauth] callback recibido | code len=%d full=%r | state=%r | verifier len=%s" % (
-            len(code), code, state, len(verifier) if verifier else None))
+        print("[oauth] callback recibido | code len=%d prefix=%r... | state=%r | verifier len=%s" % (
+            len(code), code[:6], state, len(verifier) if verifier else None))
         if not verifier:
             self._send(400, "state inválido", "text/plain")
             return
@@ -871,7 +891,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                         MIN_FETCH = 1.5
                         if (_t - _sync_cache["fetched_at"] >= MIN_FETCH or _sync_cache["fetched_at"] == 0):
                             player = fetch_player(tok)
-                            if player and player.get("item") is not None or (player and not player.get("error")):
+                            if (player and player.get("item") is not None) or (player and not player.get("error")):
                                 _sync_cache["is_playing"] = player.get("is_playing", False)
                                 _sync_cache["prog"] = player.get("progress_ms", 0) or 0
                                 _sync_cache["pos_at"] = _t
@@ -970,14 +990,25 @@ class Handler(http.server.BaseHTTPRequestHandler):
                            "application/json; charset=utf-8")
         elif p == "/login":
             self._login()
+        elif p in ("/favicon.ico", "/fiesta.ico"):
+            ico_path = os.path.join(BASE, "fiesta.ico")
+            if os.path.exists(ico_path):
+                if "ico" not in _static_cache:
+                    with open(ico_path, "rb") as f:
+                        _static_cache["ico"] = f.read()
+                self._send(200, _static_cache["ico"], "image/x-icon", cache="public, max-age=86400")
+            else:
+                self._send(404, "no icon", "text/plain")
         elif p.startswith("/fonts/"):
             fn = os.path.basename(p)
             fp = os.path.join(BASE, "fonts", fn)
             if fn.endswith((".woff2", ".woff", ".ttf", ".otf")) and os.path.exists(fp):
                 ctype = {"woff2": "font/woff2", "woff": "font/woff", "ttf": "font/ttf",
                          "otf": "font/otf"}.get(fn.rsplit(".", 1)[-1], "application/octet-stream")
-                with open(fp, "rb") as f:
-                    self._send(200, f.read(), ctype)
+                if fp not in _static_cache:
+                    with open(fp, "rb") as f:
+                        _static_cache[fp] = f.read()
+                self._send(200, _static_cache[fp], ctype, cache="public, max-age=86400")
             else:
                 self._send(404, "no", "text/plain")
         elif p == "/callback":
